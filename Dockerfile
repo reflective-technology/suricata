@@ -5,3 +5,7 @@ RUN dnf -y update && \
     rm -rf /var/cache/dnf/*
 COPY configs/suricata.yaml /etc/suricata/suricata.yaml
 COPY configs/http_custom.lua /etc/suricata/http_custom.lua
+
+FROM prod AS dev
+COPY tests /tests
+WORKDIR /tests

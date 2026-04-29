@@ -43,7 +43,7 @@ jobs:
           outputs: type=image,push=${{ github.event.pull_request.head.repo.full_name == github.repository }}
           cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache
           cache-to: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache,mode=max
-          target: prod
+          target: dev
   test:
     name: test image
     needs: build-image
@@ -55,5 +55,6 @@ jobs:
         run: |
           echo "Running tests..."
           ls -la
+          pwd
           # Add your test commands here, for example:
           bash tests/test.sh
