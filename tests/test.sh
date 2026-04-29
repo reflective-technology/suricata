@@ -1,11 +1,11 @@
 # replace the `runmode: workers` to `runmode: autofp` in `/etc/suricata/suricata.yaml` for analyzing the offline pcap
 sed -i 's/runmode: workers/runmode: autofp/g' /etc/suricata/suricata.yaml
 
-# add the `print(syslog_format_message)` in the first line of the function `sendToSyslogServer` in `/etc/suricata/http_custom_7.0.lua`
+# add the `print(syslog_format_message)` in the first line of the function `sendToSyslogServer` in `/etc/suricata/http_custom.lua`
 sed -i 's/--print(message)/print(message)/g' /etc/suricata/http_custom.lua
 
 # Test all targets in /tmp/targets/
-for target in targets/*/; do
+for target in target/*/; do
     target_name=$(basename "$target")
     echo "Testing target: $target_name"
 
