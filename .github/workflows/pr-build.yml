@@ -57,4 +57,4 @@ jobs:
           ls -la
           pwd
           # Add your test commands here, for example:
-          bash tests/test.sh
+          bash /tests/test.sh
