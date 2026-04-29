@@ -2,7 +2,7 @@
 sed -i 's/runmode: workers/runmode: autofp/g' /etc/suricata/suricata.yaml
 
 # add the `print(syslog_format_message)` in the first line of the function `sendToSyslogServer` in `/etc/suricata/http_custom_7.0.lua`
-sed -i 's/--print(message)/print(message)/g' /etc/suricata/http_custom_7.0.lua
+sed -i 's/--print(message)/print(message)/g' /etc/suricata/http_custom.lua
 
 # Test all targets in /tmp/targets/
 for target in targets/*/; do

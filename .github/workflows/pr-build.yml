@@ -54,7 +54,6 @@ jobs:
       - name: Run tests
         run: |
           echo "Running tests..."
-          ls -la
-          pwd
-          # Add your test commands here, for example:
-          bash /tests/test.sh
+          cd /tests
+          ls -al
+          bash test.sh
