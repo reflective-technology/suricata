@@ -1,0 +1,15 @@
+name: Image Test
+on:
+  registry_package:
+    types: [ updated ]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}:${{ github.ref }}
+    steps:
+      - name: Run tests
+        run: |
+          echo "Running tests..."
+          # Add your test commands here, for example:
+          bash tests/test.sh
