@@ -1,7 +1,9 @@
 name: Image Test
 on:
-  registry_package:
-    types: [ updated ]
+  workflow_run:
+    workflows: [ "Pull Request Build" ]
+    types:
+      - completed
 jobs:
   test:
     runs-on: ubuntu-latest
