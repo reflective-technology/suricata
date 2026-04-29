@@ -1,0 +1,381 @@
+%YAML 1.1
+---
+
+default-log-dir: /var/log/suricata/
+
+# Engine statistics such as packet counters, memory use counters and others can be logged in several ways. 
+stats:
+  enabled: yes
+  interval: 8
+  totals: yes # stats for all threads merged together
+
+outputs:
+  - lua:
+      enabled: yes
+      scripts-dir: /etc/suricata
+      scripts:
+        - http_custom.lua
+
+logging:
+  default-log-level: notice
+  default-log-format: "[%i] %t - (%f:%l) <%d> (%n) -- "
+  outputs:
+    - console:
+        enabled: yes
+
+app-layer:
+  protocols:
+    tls:
+      enabled: no
+      detection-ports:
+        dp: 443
+    http:
+      enabled: yes
+      libhtp:
+        default-config:
+          personality: IDS
+          request-body-limit: 100kb
+          response-body-limit: 100kb
+          request-body-minimal-inspect-size: 32kb
+          request-body-inspect-window: 4kb
+          response-body-minimal-inspect-size: 40kb
+          response-body-inspect-window: 16kb
+          response-body-decompress-layer-limit: 2
+          http-body-inline: auto
+          swf-decompression:
+            enabled: yes
+            type: both
+            compress-depth: 100kb
+            decompress-depth: 100kb
+          double-decode-path: no
+          double-decode-query: no
+        server-config:
+    http2:
+      enabled: yes
+    ftp:
+      enabled: no
+    smtp:
+      enabled: no
+      raw-extraction: no
+      mime:
+        decode-mime: yes
+        decode-base64: yes
+        decode-quoted-printable: yes
+        header-value-depth: 2000
+        extract-urls: yes
+        body-md5: no
+    imap:
+      #enabled: detection-only
+      enabled: no
+    msn:
+      #enabled: detection-only
+      enabled: no
+    smb:
+      enabled: no
+      detection-ports:
+        dp: 139, 445
+    nfs:
+      enabled: no
+    tftp:
+      enabled: no
+    dns:
+      tcp:
+        enabled: no
+        detection-ports:
+          dp: 53
+      udp:
+        enabled: no
+        detection-ports:
+          dp: 53
+    ssh:
+      enabled: no
+    snmp:
+      enabled: no
+    ikev2:
+      enabled: no
+    krb5:
+      enabled: no
+    dhcp:
+      enabled: no
+    rfb:
+      enabled: no
+    mqtt:
+      enabled: no
+    bittorrent-dht:
+      enabled: no
+
+asn1-max-frames: 256
+
+run-as:
+  user: suricata
+  group: suricata
+
+sensor-name: suricata
+
+pid-file: /var/run/suricata.pid
+
+daemon: yes
+
+umask: 022
+
+# Setting max-dump to 0 disables core dumping.
+# Setting max-dump to 'unlimited' will give the full core dump file.
+coredump:
+  max-dump: unlimited
+
+# If suricata box is a router for the sniffed networks, set it to 'router'. If
+# it is a pure sniffing setup, set it to 'sniffer-only'.
+# If set to auto, the variable is internally switch to 'router' in IPS mode
+# and 'sniffer-only' in IDS mode.
+# This feature is currently only used by the reject* keywords.
+host-mode: auto
+
+#legacy:
+#uricontent: enabled
+
+#engine-analysis:
+#rules-fast-pattern: yes
+#rules: yes
+
+#pcre:
+#match-limit: 3500
+#match-limit-recursion: 1500
+
+host-os-policy:
+  windows: [ 0.0.0.0/0 ]
+  bsd: []
+  bsd-right: []
+  old-linux: []
+  linux: []
+  old-solaris: []
+  solaris: []
+  hpux10: []
+  hpux11: []
+  irix: []
+  macos: []
+  vista: []
+  windows2k3: []
+
+# Occasionally network packets appear fragmented. 
+# Fragmented packets exist of many parts, the packets have to be reconstructed.
+# This will be done by a component of Suricata; the defragment-engine
+defrag:
+  memcap: 1gb
+  hash-size: 65536
+  trackers: 65535
+  max-frags: 65535
+  prealloc: yes
+  timeout: 60
+
+flow:
+  memcap: 2gb
+  hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
+  managers: 1
+  recyclers: 1
+
+vlan:
+  use-for-tracking: true
+
+flow-timeouts:
+  default:
+    new: 30
+    established: 300
+    closed: 0
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-closed: 0
+    emergency-bypassed: 50
+  tcp:
+    new: 60
+    established: 600
+    closed: 60
+    bypassed: 100
+    emergency-new: 5
+    emergency-established: 100
+    emergency-closed: 10
+    emergency-bypassed: 50
+  udp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-bypassed: 50
+  icmp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-bypassed: 50
+
+stream:
+  memcap: 2gb # memcap > prealloc-sessions * thread nums(default to core nums) * interface nums * size of TcpSession(800B)
+  prealloc-sessions: 8192 # per thread
+  checksum-validation: yes
+  inline: auto
+  reassembly:
+    memcap: 6gb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+    randomize-chunk-size: yes
+
+host:
+  hash-size: 4096
+  prealloc: 1000
+  memcap: 32mb
+
+decoder:
+  teredo:
+    enabled: true
+    ports:
+      dp: $TEREDO_PORTS
+      sp: $TEREDO_PORTS
+  vxlan:
+    enabled: true
+    ports:
+      dp: $VXLAN_PORTS
+      sp: $VXLAN_PORTS
+  geneve:
+    enabled: true
+    ports:
+      dp: $GENEVE_PORTS
+      sp: $GENEVE_PORTS
+
+mpm-algo: auto
+
+spm-algo: auto
+
+af-packet:
+  - interface: default
+    threads: auto
+    cluster-type: cluster_flow # Uses all cores
+    defrag: yes
+    # tpacket-v3 should have better packet capture rate than tpacket-v2,
+    # refer to https://www.kernel.org/doc/Documentation/networking/packet_mmap.txt
+    tpacket-v3: yes
+
+threading:
+  set-cpu-affinity: no # let suricata to distribute the threads to the cores
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [ 0 ] # include only these cpus in affinity settings
+    - receive-cpu-set:
+        cpu: [ 0 ] # include only these cpus in affinity settings
+    - worker-cpu-set:
+        cpu: [ "all" ]
+  detect-thread-ratio: 1.0
+
+napatech:
+  hba: -1
+  use-all-streams: yes
+  streams: [ "0-3" ]
+  #netmap:
+  #- interface: eth2
+  #- interface: eth3
+  #threads: auto
+  #copy-mode: ips
+  #copy-iface: eth4
+  #- interface: default
+
+  #pfring:
+  #- interface: eth0
+  #threads: auto
+  #cluster-id: 99
+  #cluster-type: cluster_flow
+  #- interface: default
+
+ipfw:
+
+  #windivert:
+  #device: 1B001D5C-5DB1-4E7B-9FC2-65A3A17C43BB
+
+nfqueue:
+
+nflog:
+  - group: 2
+    buffer-size: 18432
+  - group: default
+    qthreshold: 1
+    qtimeout: 100
+    max-size: 20000
+
+capture:
+
+netfilter:
+
+simulate-ips: no
+
+# This setting controls the number simultaneous packets that the engine can handle.
+# Setting this higher generally keeps the threads more busy,
+# but setting it too high will lead to degradation.
+# Suggested setting: 10000 or higher. Max is ~65000. This setting is per thread.
+# The memory is set up at start and the usage is as:
+# number_of.threads X max-pending-packets X (default-packet-size + ~750 bytes)
+#max-pending-packets: 1024 # 167 MB
+max-pending-packets: 30720
+
+runmode: workers
+
+autofp-scheduler: hash
+
+default-packet-size: 1514
+
+#unix-command:
+#enabled: auto
+
+legacy:
+  uricontent: enabled
+
+exception-policy: auto
+
+app-layer-error-policy: ignore
+
+#napatech:
+#auto-config: yes
+#total-ports: 0
+#rss-load-balance: yes
+#intf-count: 0
+#ports: [all]
+#hashmode: hash5tuplesorted
+
+plugin:
+  - /usr/local/lib/suricata/python/suricata-verify.py
+
+detect:
+  enabled: no
+
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    AIM_SERVERS: "$EXTERNAL_NET"
+    DC_SERVERS: "$HOME_NET"
+    DNP3_SERVER: "$HOME_NET"
+    DNP3_CLIENT: "$HOME_NET"
+    MODBUS_CLIENT: "$HOME_NET"
+    MODBUS_SERVER: "$HOME_NET"
+    ENIP_CLIENT: "$HOME_NET"
+    ENIP_SERVER: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "[80,8080]"
+    SHELLCODE_PORTS: "!80"
+    ORACLE_PORTS: 1521
+    SSH_PORTS: 22
+    DNP3_PORTS: 20000
+    MODBUS_PORTS: 502
+    FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+    FTP_PORTS: 21
+    GENEVE_PORTS: 6081
+    VXLAN_PORTS: 4789
+    TEREDO_PORTS: 3544
