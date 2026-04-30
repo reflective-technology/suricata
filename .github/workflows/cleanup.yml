@@ -1,7 +1,7 @@
 name: GHCR Cleanup
 on:
   schedule:
-    - cron: "20 4 * * sun" # every Sunday at 4:20 AM
+    - cron: "20 4 * * sun" # every Sunday at 4:20 AM UTC
   workflow_dispatch:
 permissions:
   packages: write
