@@ -1,0 +1,17 @@
+services:
+  suricata:
+    image: ghcr.io/reflective-technology/suricata:latest
+    container_name: suricata
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_NICE
+    environment:
+      - SYSLOG_HOST=127.0.0.1
+      - SYSLOG_PORT=514
+      - BODY_MAX_SIZE=4096
+      - TCP_MAX_RETRIES=10
+      - TCP_RETRY_DELAY=10
+    command: [ "-i eth0" ]
+    restart: unless-stopped
