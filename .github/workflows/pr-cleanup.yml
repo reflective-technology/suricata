@@ -8,6 +8,7 @@ jobs:
   ghcr-cleanup-image:
     name: ghcr cleanup action
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Delete image
         uses: dataaxiom/ghcr-cleanup-action@cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4
