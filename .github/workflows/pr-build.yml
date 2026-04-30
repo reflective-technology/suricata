@@ -48,12 +48,13 @@ jobs:
     name: test image
     needs: build-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ${{ needs.build-image.outputs.image }}
     steps:
       - name: Run tests
         run: |
-          echo "Running tests..."
           cd /tests
-          ls -al
           bash test.sh
