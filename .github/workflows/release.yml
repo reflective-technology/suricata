@@ -9,7 +9,6 @@ env:
 permissions:
   contents: read
   packages: write
-  id-token: write
 jobs:
   build:
     name: Build and Push
@@ -122,6 +121,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: merge
     environment: Prod
+    permissions:
+      packages: read
+      id-token: write
     env:
       IMAGE_NAME: zuin/cybereyes/suricata
     steps:
