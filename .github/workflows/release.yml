@@ -128,13 +128,13 @@ jobs:
       IMAGE_NAME: zuin/cybereyes/suricata
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885
         with:
           aws-region: ap-northeast-1
           role-to-assume: ${{ secrets.AWS_ROLE }}
       - name: Login to Amazon ECR Public
         id: login-ecr-public
-        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7
+        uses: aws-actions/amazon-ecr-login@fa648b43de3d4d023bcb3f89ed6940096949c419
         with:
           registry-type: public
       - name: Login to GitHub Container Registry
