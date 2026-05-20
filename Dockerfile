@@ -1,4 +1,4 @@
-FROM docker.io/jasonish/suricata:7.0.15 AS prod
+FROM docker.io/jasonish/suricata:7.0.16 AS prod
 RUN dnf -y update && \
     dnf -y install nss nss-softokn lua lua-json lua-socket && \
     dnf -y clean all && \
