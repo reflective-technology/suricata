@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Prepare
         run: |
           platform=${{ matrix.platform }}
@@ -84,7 +84,7 @@ jobs:
       - build
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Download digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -128,7 +128,7 @@ jobs:
       IMAGE_NAME: zuin/cybereyes/suricata
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@99214aa6889fcddfa57764031d71add364327e59
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b
         with:
           aws-region: ap-northeast-1
           role-to-assume: ${{ secrets.AWS_ROLE }}
