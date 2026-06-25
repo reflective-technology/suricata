@@ -162,7 +162,9 @@ function extract_http_variables()
     local response_content_type = HttpGetResponseHeader("Content-Type") or ""
     local response_content_length = HttpGetResponseHeader("Content-Length") or ""
 
+    -- Sensitive headers: redact rather than ship the raw value over syslog.
     local authorization = HttpGetRequestHeader("Authorization") or ""
+    if authorization ~= "" then authorization = "[REDACTED]" end
     local host = HttpGetRequestHeader("Host") or ""
     local etag = HttpGetResponseHeader("ETag") or ""
     local last_modified = HttpGetResponseHeader("Last-Modified") or ""
@@ -170,6 +172,9 @@ function extract_http_variables()
     local http_accept_language = HttpGetRequestHeader("Accept-Language") or ""
     local location = HttpGetResponseHeader("Location") or ""
     local set_cookie = HttpGetResponseHeader("Set-Cookie") or ""
+    if set_cookie ~= "" then set_cookie = "[REDACTED]" end
+    local cookie = HttpGetRequestHeader("Cookie") or ""
+    if cookie ~= "" then cookie = "[REDACTED]" end
     local x_forwarded_host = HttpGetRequestHeader("X-Forwarded-Host") or ""
     local x_powered_by = HttpGetResponseHeader("X-Powered-By") or ""
 
@@ -211,6 +216,7 @@ function extract_http_variables()
         http_accept_language = http_accept_language,
         location = location,
         set_cookie = set_cookie,
+        cookie = cookie,
         x_forwarded_host = x_forwarded_host,
         x_powered_by = x_powered_by,
     }
@@ -236,7 +242,7 @@ function calculate_duration()
     end
 end
 
-function format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration, raw_request_headers, raw_response_headers, request_body, response_body)
+function format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration)
     return string.format(
         'time="%s" src="%s" dest="%s" src_port=%s dest_port=%s ' ..
         'http_method="%s" version="%s" uri_path="%s" ' ..
@@ -246,14 +252,10 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         'request_content_length="%s" bytes_in=%d status="%s" ' ..
         'response_content_type="%s" response_content_length="%s" ' ..
         'authorization="%s" host="%s" etag="%s" last_modified="%s" server="%s" ' ..
-        'http_accept_language="%s" location="%s" set_cookie="%s" ' ..
+        'http_accept_language="%s" location="%s" set_cookie="%s" cookie="%s" ' ..
         'x_forwarded_host="%s" x_powered_by="%s" ' ..
         'bytes_out="%s" duration=%d ' ..
-        'body_bytes_out="%s" body_bytes_in="%s" ' ..
-        'request_header=%s ' .. 
-	'response_header=%s ' ..
-	'request_body=%s ' ..
-	'response_body=%s',
+        'body_bytes_out="%s" body_bytes_in="%s"',
         vars.timestamp, vars.src_ip, vars.dest_ip, vars.src_port, vars.dest_port,
         vars.method, vars.version, vars.uri_path,
         vars.uri_query, vars.file_extension, vars.hostname,
@@ -262,12 +264,20 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         vars.request_content_length, count_http_bytes_in_and_bytes_out(req_header_length, request_body_len), vars.status,
         vars.response_content_type, vars.response_content_length,
         vars.authorization, vars.host, vars.etag, vars.last_modified, vars.server,
-        vars.http_accept_language, vars.location, vars.set_cookie,
+        vars.http_accept_language, vars.location, vars.set_cookie, vars.cookie,
         vars.x_forwarded_host, vars.x_powered_by,
         count_http_bytes_in_and_bytes_out(res_header_length, response_body_len), duration,
-        response_body_len, request_body_len,
-        raw_request_headers, raw_response_headers,
-        request_body, response_body
+        response_body_len, request_body_len
+    )
+end
+
+-- Composable, opt-in fragment for clients that need raw request/response
+-- header and body content shipped over syslog. Disabled by default --
+-- see the commented-out call site in log().
+function format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+    return string.format(
+        ' request_header=%s response_header=%s request_body=%s response_body=%s',
+        raw_request_headers, raw_response_headers, request_body, response_body
     )
 end
 
@@ -378,12 +388,18 @@ function log(args)
     local response_body_len = calculate_response_body_length()
     local req_header_length = calculate_request_headers_size()
     local res_header_length = calculate_response_headers_size()
-    local raw_request_headers = getRawRequestHeaders()
-    local raw_response_headers = getRawResponseHeaders()
-    local request_body = getRequestBody()
-    local response_body = getResponseBody()
 
-    local message = format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration, raw_request_headers, raw_response_headers, request_body, response_body)
+    local message = format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration)
+
+    -- Raw request/response header + body capture is disabled by default
+    -- (it was accidentally on for every client; it's meant for specific clients
+    -- only). Uncomment for a client that specifically needs it:
+    -- local raw_request_headers = getRawRequestHeaders()
+    -- local raw_response_headers = getRawResponseHeaders()
+    -- local request_body = getRequestBody()
+    -- local response_body = getResponseBody()
+    -- message = message .. format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+
     --print(message) -- test stage will uncomment this line for the parsing tests
 
     sendToSyslogServer(template_syslog_message(message))
