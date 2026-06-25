@@ -10,8 +10,10 @@ services:
     environment:
       - SYSLOG_HOST=127.0.0.1
       - SYSLOG_PORT=514
-      - BODY_MAX_SIZE=4096
+      - HTTP_BODY_MAX_SIZE=1024
       - TCP_MAX_RETRIES=10
       - TCP_RETRY_DELAY=10
+      - REDACT_SENSITIVE_HEADERS=true
+      - ENABLE_RAW_CAPTURE=false
     command: [ "-i eth0" ]
     restart: unless-stopped

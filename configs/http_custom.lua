@@ -4,6 +4,21 @@ function init (args)
     return needs
 end
 
+function env_bool(name, default)
+    local value = os.getenv(name)
+    if value == nil then
+        return default
+    end
+    value = string.lower(value)
+    if value == "false" or value == "0" or value == "no" then
+        return false
+    elseif value == "true" or value == "1" or value == "yes" then
+        return true
+    else
+        return default
+    end
+end
+
 function setup (args)
     --filename = "/var/log/suricata/http_custom.log"
     --file = assert(io.open(filename, "a"))
@@ -14,7 +29,12 @@ function setup (args)
     tcp_client = establish_tcp_connection(0)
 
     -- load the required env variables
-    body_max_size = tonumber(os.getenv("BODY_MAX_SIZE")) or 4096
+    body_max_size = tonumber(os.getenv("HTTP_BODY_MAX_SIZE")) or 1024
+
+    -- Redact Authorization/Cookie/Set-Cookie by default. Raw request/response
+    -- header+body capture is off by default; only specific clients need it.
+    redact_sensitive_headers = env_bool("REDACT_SENSITIVE_HEADERS", true)
+    enable_raw_capture = env_bool("ENABLE_RAW_CAPTURE", false)
 
     -- Load json library as global
     json = require("json")
@@ -162,7 +182,10 @@ function extract_http_variables()
     local response_content_type = HttpGetResponseHeader("Content-Type") or ""
     local response_content_length = HttpGetResponseHeader("Content-Length") or ""
 
+    -- Sensitive headers: redact rather than ship the raw value over syslog,
+    -- unless REDACT_SENSITIVE_HEADERS=false for a client that needs them raw.
     local authorization = HttpGetRequestHeader("Authorization") or ""
+    if redact_sensitive_headers and authorization ~= "" then authorization = "[REDACTED]" end
     local host = HttpGetRequestHeader("Host") or ""
     local etag = HttpGetResponseHeader("ETag") or ""
     local last_modified = HttpGetResponseHeader("Last-Modified") or ""
@@ -170,6 +193,9 @@ function extract_http_variables()
     local http_accept_language = HttpGetRequestHeader("Accept-Language") or ""
     local location = HttpGetResponseHeader("Location") or ""
     local set_cookie = HttpGetResponseHeader("Set-Cookie") or ""
+    if redact_sensitive_headers and set_cookie ~= "" then set_cookie = "[REDACTED]" end
+    local cookie = HttpGetRequestHeader("Cookie") or ""
+    if redact_sensitive_headers and cookie ~= "" then cookie = "[REDACTED]" end
     local x_forwarded_host = HttpGetRequestHeader("X-Forwarded-Host") or ""
     local x_powered_by = HttpGetResponseHeader("X-Powered-By") or ""
 
@@ -211,6 +237,7 @@ function extract_http_variables()
         http_accept_language = http_accept_language,
         location = location,
         set_cookie = set_cookie,
+        cookie = cookie,
         x_forwarded_host = x_forwarded_host,
         x_powered_by = x_powered_by,
     }
@@ -236,7 +263,7 @@ function calculate_duration()
     end
 end
 
-function format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration, raw_request_headers, raw_response_headers, request_body, response_body)
+function format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration)
     return string.format(
         'time="%s" src="%s" dest="%s" src_port=%s dest_port=%s ' ..
         'http_method="%s" version="%s" uri_path="%s" ' ..
@@ -246,14 +273,10 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         'request_content_length="%s" bytes_in=%d status="%s" ' ..
         'response_content_type="%s" response_content_length="%s" ' ..
         'authorization="%s" host="%s" etag="%s" last_modified="%s" server="%s" ' ..
-        'http_accept_language="%s" location="%s" set_cookie="%s" ' ..
+        'http_accept_language="%s" location="%s" set_cookie="%s" cookie="%s" ' ..
         'x_forwarded_host="%s" x_powered_by="%s" ' ..
         'bytes_out="%s" duration=%d ' ..
-        'body_bytes_out="%s" body_bytes_in="%s" ' ..
-        'request_header=%s ' .. 
-	'response_header=%s ' ..
-	'request_body=%s ' ..
-	'response_body=%s',
+        'body_bytes_out="%s" body_bytes_in="%s"',
         vars.timestamp, vars.src_ip, vars.dest_ip, vars.src_port, vars.dest_port,
         vars.method, vars.version, vars.uri_path,
         vars.uri_query, vars.file_extension, vars.hostname,
@@ -262,12 +285,20 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         vars.request_content_length, count_http_bytes_in_and_bytes_out(req_header_length, request_body_len), vars.status,
         vars.response_content_type, vars.response_content_length,
         vars.authorization, vars.host, vars.etag, vars.last_modified, vars.server,
-        vars.http_accept_language, vars.location, vars.set_cookie,
+        vars.http_accept_language, vars.location, vars.set_cookie, vars.cookie,
         vars.x_forwarded_host, vars.x_powered_by,
         count_http_bytes_in_and_bytes_out(res_header_length, response_body_len), duration,
-        response_body_len, request_body_len,
-        raw_request_headers, raw_response_headers,
-        request_body, response_body
+        response_body_len, request_body_len
+    )
+end
+
+-- Composable, opt-in fragment for clients that need raw request/response
+-- header and body content shipped over syslog. Gated by ENABLE_RAW_CAPTURE
+-- in log(), off by default.
+function format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+    return string.format(
+        ' request_header=%s response_header=%s request_body=%s response_body=%s',
+        raw_request_headers, raw_response_headers, request_body, response_body
     )
 end
 
@@ -378,12 +409,19 @@ function log(args)
     local response_body_len = calculate_response_body_length()
     local req_header_length = calculate_request_headers_size()
     local res_header_length = calculate_response_headers_size()
-    local raw_request_headers = getRawRequestHeaders()
-    local raw_response_headers = getRawResponseHeaders()
-    local request_body = getRequestBody()
-    local response_body = getResponseBody()
 
-    local message = format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration, raw_request_headers, raw_response_headers, request_body, response_body)
+    local message = format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration)
+
+    -- Off by default; set ENABLE_RAW_CAPTURE=true for a client that
+    -- specifically needs raw request/response header + body content.
+    if enable_raw_capture then
+        local raw_request_headers = getRawRequestHeaders()
+        local raw_response_headers = getRawResponseHeaders()
+        local request_body = getRequestBody()
+        local response_body = getResponseBody()
+        message = message .. format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+    end
+
     --print(message) -- test stage will uncomment this line for the parsing tests
 
     sendToSyslogServer(template_syslog_message(message))
