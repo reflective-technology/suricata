@@ -48,13 +48,17 @@ A containerized [Suricata 7.0](https://suricata.io/) that forwards HTTP traffic 
 
 ### Environment Variables
 
-| Variable          | Default     | Description                                          |
-|-------------------|-------------|------------------------------------------------------|
-| `SYSLOG_HOST`     | `127.0.0.1` | Syslog server IP address                             |
-| `SYSLOG_PORT`     | `514`       | Syslog server TCP port                               |
-| `BODY_MAX_SIZE`   | `4096`      | Maximum number of bytes captured from the HTTP body  |
-| `TCP_MAX_RETRIES` | `10`        | Maximum TCP reconnect attempts on connection failure |
-| `TCP_RETRY_DELAY` | `10`        | Seconds to wait between reconnect attempts           |
+| Variable                     | Default     | Description                                                                 |
+|------------------------------|-------------|-------------------------------------------------------------------------------|
+| `SYSLOG_HOST`                | `127.0.0.1` | Syslog server IP address                                                    |
+| `SYSLOG_PORT`                | `514`       | Syslog server TCP port                                                      |
+| `HTTP_BODY_MAX_SIZE`         | `1024`      | Maximum number of bytes captured from the HTTP body                        |
+| `TCP_MAX_RETRIES`            | `10`        | Maximum TCP reconnect attempts on connection failure                        |
+| `TCP_RETRY_DELAY`            | `10`        | Seconds to wait between reconnect attempts                                  |
+| `REDACT_SENSITIVE_HEADERS`   | `true`      | Redact `Authorization`/`Cookie`/`Set-Cookie` to `[REDACTED]` when present   |
+| `ENABLE_RAW_CAPTURE`         | `false`     | Ship raw `request_header`/`response_header`/`request_body`/`response_body` |
+
+See [Migrating from older versions](#migrating-from-older-versions) if you're upgrading an existing deployment.
 
 ### Full docker-compose.yml Example
 
@@ -71,12 +75,20 @@ services:
     environment:
       - SYSLOG_HOST=192.168.1.100   # change to your Syslog server address
       - SYSLOG_PORT=514
-      - BODY_MAX_SIZE=4096
+      - HTTP_BODY_MAX_SIZE=1024
       - TCP_MAX_RETRIES=10
       - TCP_RETRY_DELAY=10
+      - REDACT_SENSITIVE_HEADERS=true
+      - ENABLE_RAW_CAPTURE=false
     command: [ "-i ens3" ]          # change to your network interface name
     restart: unless-stopped
 ```
+
+### Migrating from older versions
+
+- **`BODY_MAX_SIZE` is renamed to `HTTP_BODY_MAX_SIZE`** (the old name was too generic). Update your compose file; the old name is no longer read, and the default also changed from `4096` to `1024`.
+- **`Authorization`, `Cookie`, and `Set-Cookie` are now redacted to `[REDACTED]` by default.** Set `REDACT_SENSITIVE_HEADERS=false` if your pipeline needs the raw values.
+- **Raw `request_header`/`response_header`/`request_body`/`response_body` capture is now off by default**, and the fields are omitted entirely (not sent as empty strings) when off. Set `ENABLE_RAW_CAPTURE=true` if your pipeline depends on this data.
 
 ## Container Image
 

@@ -4,6 +4,21 @@ function init (args)
     return needs
 end
 
+function env_bool(name, default)
+    local value = os.getenv(name)
+    if value == nil then
+        return default
+    end
+    value = string.lower(value)
+    if value == "false" or value == "0" or value == "no" then
+        return false
+    elseif value == "true" or value == "1" or value == "yes" then
+        return true
+    else
+        return default
+    end
+end
+
 function setup (args)
     --filename = "/var/log/suricata/http_custom.log"
     --file = assert(io.open(filename, "a"))
@@ -14,7 +29,12 @@ function setup (args)
     tcp_client = establish_tcp_connection(0)
 
     -- load the required env variables
-    body_max_size = tonumber(os.getenv("BODY_MAX_SIZE")) or 4096
+    body_max_size = tonumber(os.getenv("HTTP_BODY_MAX_SIZE")) or 1024
+
+    -- Redact Authorization/Cookie/Set-Cookie by default. Raw request/response
+    -- header+body capture is off by default; only specific clients need it.
+    redact_sensitive_headers = env_bool("REDACT_SENSITIVE_HEADERS", true)
+    enable_raw_capture = env_bool("ENABLE_RAW_CAPTURE", false)
 
     -- Load json library as global
     json = require("json")
@@ -162,9 +182,10 @@ function extract_http_variables()
     local response_content_type = HttpGetResponseHeader("Content-Type") or ""
     local response_content_length = HttpGetResponseHeader("Content-Length") or ""
 
-    -- Sensitive headers: redact rather than ship the raw value over syslog.
+    -- Sensitive headers: redact rather than ship the raw value over syslog,
+    -- unless REDACT_SENSITIVE_HEADERS=false for a client that needs them raw.
     local authorization = HttpGetRequestHeader("Authorization") or ""
-    if authorization ~= "" then authorization = "[REDACTED]" end
+    if redact_sensitive_headers and authorization ~= "" then authorization = "[REDACTED]" end
     local host = HttpGetRequestHeader("Host") or ""
     local etag = HttpGetResponseHeader("ETag") or ""
     local last_modified = HttpGetResponseHeader("Last-Modified") or ""
@@ -172,9 +193,9 @@ function extract_http_variables()
     local http_accept_language = HttpGetRequestHeader("Accept-Language") or ""
     local location = HttpGetResponseHeader("Location") or ""
     local set_cookie = HttpGetResponseHeader("Set-Cookie") or ""
-    if set_cookie ~= "" then set_cookie = "[REDACTED]" end
+    if redact_sensitive_headers and set_cookie ~= "" then set_cookie = "[REDACTED]" end
     local cookie = HttpGetRequestHeader("Cookie") or ""
-    if cookie ~= "" then cookie = "[REDACTED]" end
+    if redact_sensitive_headers and cookie ~= "" then cookie = "[REDACTED]" end
     local x_forwarded_host = HttpGetRequestHeader("X-Forwarded-Host") or ""
     local x_powered_by = HttpGetResponseHeader("X-Powered-By") or ""
 
@@ -272,8 +293,8 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
 end
 
 -- Composable, opt-in fragment for clients that need raw request/response
--- header and body content shipped over syslog. Disabled by default --
--- see the commented-out call site in log().
+-- header and body content shipped over syslog. Gated by ENABLE_RAW_CAPTURE
+-- in log(), off by default.
 function format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
     return string.format(
         ' request_header=%s response_header=%s request_body=%s response_body=%s',
@@ -391,14 +412,15 @@ function log(args)
 
     local message = format_message(vars, request_body_len, response_body_len, req_header_length, res_header_length, duration)
 
-    -- Raw request/response header + body capture is disabled by default
-    -- (it was accidentally on for every client; it's meant for specific clients
-    -- only). Uncomment for a client that specifically needs it:
-    -- local raw_request_headers = getRawRequestHeaders()
-    -- local raw_response_headers = getRawResponseHeaders()
-    -- local request_body = getRequestBody()
-    -- local response_body = getResponseBody()
-    -- message = message .. format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+    -- Off by default; set ENABLE_RAW_CAPTURE=true for a client that
+    -- specifically needs raw request/response header + body content.
+    if enable_raw_capture then
+        local raw_request_headers = getRawRequestHeaders()
+        local raw_response_headers = getRawResponseHeaders()
+        local request_body = getRequestBody()
+        local response_body = getResponseBody()
+        message = message .. format_raw_capture(raw_request_headers, raw_response_headers, request_body, response_body)
+    end
 
     --print(message) -- test stage will uncomment this line for the parsing tests
 
