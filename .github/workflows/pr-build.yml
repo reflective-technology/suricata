@@ -65,6 +65,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      pull-requests: write
     steps:
       - name: Run trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
