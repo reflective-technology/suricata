@@ -160,7 +160,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: update dependcy
+      - name: update dependency
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ env.REGISTRY_IMAGE }}:${{ needs.merge.outputs.version }}
