@@ -71,27 +71,32 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ needs.build-image.outputs.image }}
-          format: "json"
+          format: "table"
           exit-code: "1"
           ignore-unfixed: false
           vuln-type: "os,library"
           severity: "CRITICAL,HIGH"
-          output: trivy.json
+          output: trivy.txt
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-      - name: json2html
-        shell: pwsh
-        run: |
-          Get-Content trivy.json |
-          ConvertFrom-Json |
-          Select-Object -ExpandProperty Results |
-          Select-Object -ExpandProperty Vulnerabilities |
-          Select-Object Severity, PkgName, InstalledVersion, FixedVersion, Status, Title |
-          ConvertTo-Html -Fragment |
-          Out-File trivy.html
       - name: Publish Trivy Output to PR Comment
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         uses: mshick/add-pr-comment@ec328af66588ab8f77cdeb2c264f14aba45bbf59
         with:
-          message-path: trivy.html
+          message-path: trivy.txt
+      - name: Run trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ needs.build-image.outputs.image }}
+          format: "sarif"
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+          output: trivy-results.sarif
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+        with:
+          sarif_file: "trivy-results.sarif"
