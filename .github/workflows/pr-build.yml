@@ -58,3 +58,31 @@ jobs:
         run: |
           cd /tests
           bash test.sh
+  trivy:
+    name: trivy scan
+    needs: build-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - name: Run trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ needs.build-image.outputs.image }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+          output: trivy.txt
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish Trivy Output to PR Comment
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: mshick/add-pr-comment@ec328af66588ab8f77cdeb2c264f14aba45bbf59
+        with:
+          message-path: trivy.txt
