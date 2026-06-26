@@ -58,3 +58,20 @@ jobs:
         run: |
           cd /tests
           bash test.sh
+  trivy:
+    name: trivy scan
+    needs: build-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Run trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ needs.build-image.outputs.image }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
