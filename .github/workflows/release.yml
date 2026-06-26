@@ -153,3 +153,23 @@ jobs:
             --tag ${{ steps.login-ecr-public.outputs.registry }}/${{ env.IMAGE_NAME }}:latest \
             --tag ${{ steps.login-ecr-public.outputs.registry }}/${{ env.IMAGE_NAME }}:${{ needs.merge.outputs.version }} \
             ${{ env.REGISTRY_IMAGE }}:${{ needs.merge.outputs.version }}
+  trivy:
+    name: trivy parse the actual dependency results
+    runs-on: ubuntu-latest
+    needs: merge
+    permissions:
+      contents: write
+    steps:
+      - name: update dependcy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ env.REGISTRY_IMAGE }}:${{ needs.merge.outputs.version }}
+          scan-type: image
+          format: "github"
+          output: "dependency-results.sbom.json"
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+          severity: "MEDIUM,HIGH,CRITICAL"
+          scanners: "vuln"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
