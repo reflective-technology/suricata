@@ -45,7 +45,7 @@ jobs:
           outputs: type=image,push=true
           cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache
           cache-to: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache,mode=max
-          target: dev
+          target: prod
   trivy:
     name: trivy parse the actual dependency results
     runs-on: ubuntu-latest
