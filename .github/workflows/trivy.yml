@@ -42,7 +42,7 @@ jobs:
           context: .
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image
+          outputs: type=image,push=true
           cache-from: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache
           cache-to: type=registry,ref=${{ env.REGISTRY_IMAGE }}-cache,mode=max
           target: dev
