@@ -1,0 +1,8 @@
+FROM jasonish/suricata:8.0.0
+
+# Add lua + lua-json so our custom http_custom_8.0.lua can run.
+# epel-release pulls in the lua-json AlmaLinux 9 package.
+RUN dnf -y install epel-release && \
+    dnf -y install lua lua-json && \
+    dnf -y clean all && \
+    rm -rf /var/cache/dnf/*

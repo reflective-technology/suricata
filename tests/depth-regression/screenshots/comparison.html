@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Per-transaction 對照表</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+    margin: 0; padding: 28px; background: #f3f4f6; color: #111827;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px 0; font-weight: 700; }
+  .subtitle { color: #6b7280; margin-bottom: 24px; font-size: 14px; }
+  .legend {
+    display: flex; gap: 18px; margin-bottom: 14px; font-size: 13px;
+    background: white; padding: 12px 18px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; }
+  .sw-wire { background: #dbeafe; border: 1px solid #93c5fd; }
+  .sw-broken { background: #fee2e2; border: 1px solid #fca5a5; }
+  .sw-ok { background: #dcfce7; border: 1px solid #86efac; }
+
+  table {
+    width: 100%; border-collapse: collapse; background: white;
+    border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    font-size: 13px;
+  }
+  th, td {
+    padding: 10px 14px; text-align: left; border-bottom: 1px solid #e5e7eb;
+    vertical-align: middle;
+  }
+  thead th {
+    background: #f9fafb; font-weight: 700; color: #1f2937;
+    font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid #d1d5db;
+  }
+  thead th.col-wire { background: #eff6ff; color: #1e3a8a; }
+  thead th.col-broken { background: #fef2f2; color: #991b1b; }
+  thead th.col-ok { background: #f0fdf4; color: #14532d; }
+  tbody tr:nth-child(even) { background: #fafafa; }
+  tbody tr:hover { background: #f3f4f6; }
+
+  .tx-id {
+    font-family: "SF Mono", Consolas, monospace; font-weight: 700;
+    color: #4b5563; text-align: center;
+  }
+  .frame {
+    font-family: "SF Mono", Consolas, monospace; color: #6b7280;
+    text-align: center; font-size: 12px;
+  }
+  .wire-cell { background: #eff6ff; }
+  .broken-cell { background: #fef2f2; }
+  .ok-cell { background: #f0fdf4; }
+  .method {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-family: "SF Mono", Consolas, monospace; font-weight: 700;
+    font-size: 11px; margin-right: 6px;
+  }
+  .method-get { background: #1e40af; color: white; }
+  .method-post { background: #b45309; color: white; }
+  .method-missing { background: #dc2626; color: white; font-style: italic; }
+  .uri {
+    font-family: "SF Mono", Consolas, monospace; font-size: 12.5px;
+  }
+  .uri-real { color: #1f2937; }
+  .uri-sentinel { color: #dc2626; font-weight: 600; }
+  .ok-mark { color: #16a34a; font-weight: 700; margin-left: 6px; }
+  .bad-mark { color: #dc2626; font-weight: 700; margin-left: 6px; }
+
+  .summary {
+    margin-top: 24px; padding: 16px 18px; border-radius: 8px;
+    background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  .summary-box { padding: 12px; border-radius: 6px; text-align: center; }
+  .summary-broken { background: #fef2f2; border: 1px solid #fecaca; }
+  .summary-ok { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .summary-num { font-size: 36px; font-weight: 800; line-height: 1.1; }
+  .summary-broken .summary-num { color: #dc2626; }
+  .summary-ok .summary-num { color: #16a34a; }
+  .summary-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .footer { color: #9ca3af; font-size: 11.5px; margin-top: 18px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Per-transaction 對照表 — 全 17 筆 HTTP tx</h1>
+  <div class="subtitle">
+    同一個 pcap，Suricata 8.0 跑兩次。Wire 是真實線上資料，eve.json 是 Suricata 解析後的輸出。
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="swatch sw-wire"></div>Wire (tshark 解析的真實 HTTP request)</div>
+    <div class="legend-item"><div class="swatch sw-broken"></div>eve.json @ depth=1mb (修正前)</div>
+    <div class="legend-item"><div class="swatch sw-ok"></div>eve.json @ depth=10mb (修正後)</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2" style="width: 60px;">tx_id</th>
+        <th colspan="2" class="col-wire">Wire (tshark)</th>
+        <th colspan="2" class="col-broken">depth: 1mb (BEFORE)</th>
+        <th colspan="2" class="col-ok">depth: 10mb (AFTER)</th>
+      </tr>
+      <tr>
+        <th class="col-wire">frame</th>
+        <th class="col-wire">request</th>
+        <th class="col-broken">http_method</th>
+        <th class="col-broken">url</th>
+        <th class="col-ok">http_method</th>
+        <th class="col-ok">url</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="tx-id">0</td>
+        <td class="frame wire-cell">100</td>
+        <td class="wire-cell"><span class="method method-post">POST</span><span class="uri uri-real">/upload</span></td>
+        <td class="broken-cell"><span class="method method-post">POST</span></td>
+        <td class="broken-cell"><span class="uri uri-real">/upload</span><span class="ok-mark">✓</span></td>
+        <td class="ok-cell"><span class="method method-post">POST</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/upload</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">1</td>
+        <td class="frame wire-cell">100</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path1</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path1</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">2</td>
+        <td class="frame wire-cell">103</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path2</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path2</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">3</td>
+        <td class="frame wire-cell">105</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path3</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path3</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">4</td>
+        <td class="frame wire-cell">107</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path4</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path4</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">5</td>
+        <td class="frame wire-cell">109</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path5</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path5</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">6</td>
+        <td class="frame wire-cell">111</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path6</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path6</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">7</td>
+        <td class="frame wire-cell">113</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path7</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path7</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">8</td>
+        <td class="frame wire-cell">115</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path8</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path8</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">9</td>
+        <td class="frame wire-cell">117</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path9</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path9</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">10</td>
+        <td class="frame wire-cell">119</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path10</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path10</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">11</td>
+        <td class="frame wire-cell">121</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path11</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path11</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">12</td>
+        <td class="frame wire-cell">123</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path12</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path12</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">13</td>
+        <td class="frame wire-cell">125</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path13</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path13</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">14</td>
+        <td class="frame wire-cell">127</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path14</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path14</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">15</td>
+        <td class="frame wire-cell">129</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path15</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path15</span><span class="ok-mark">✓</span></td>
+      </tr>
+      <tr>
+        <td class="tx-id">16</td>
+        <td class="frame wire-cell">131</td>
+        <td class="wire-cell"><span class="method method-get">GET</span><span class="uri uri-real">/path16</span></td>
+        <td class="broken-cell"><span class="method method-missing">(missing)</span></td>
+        <td class="broken-cell"><span class="uri uri-sentinel">/libhtp::request_uri_not_seen</span><span class="bad-mark">✗</span></td>
+        <td class="ok-cell"><span class="method method-get">GET</span></td>
+        <td class="ok-cell"><span class="uri uri-real">/path16</span><span class="ok-mark">✓</span></td>
+      </tr>
+
+
+    </tbody>
+  </table>
+
+  <div class="summary">
+    <div class="summary-box summary-broken">
+      <div class="summary-num">16 / 17</div>
+      <div class="summary-label">depth=1mb：method 解析失敗的 tx 數</div>
+    </div>
+    <div class="summary-box summary-ok">
+      <div class="summary-num">0 / 17</div>
+      <div class="summary-label">depth=10mb：method 解析失敗的 tx 數</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Source: <code>tests/depth-regression/pcap/traffic.pcap</code> &middot;
+    <code>tests/depth-regression/results/{1mb,10mb}/eve.json</code> &middot;
+    Suricata 8.0.0
+  </div>
+
+</div>
+</body>
+</html>

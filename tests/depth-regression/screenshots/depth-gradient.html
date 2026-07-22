@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Depth gradient — 10mb 不是萬靈丹</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+    margin: 0; padding: 28px; background: #f3f4f6; color: #111827;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px 0; font-weight: 700; }
+  .subtitle { color: #6b7280; margin-bottom: 24px; font-size: 14px; }
+  .scenario {
+    background: white; padding: 14px 18px; border-radius: 8px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .scenario .label { font-size: 13px; color: #6b7280; }
+  .scenario .value { font-size: 17px; font-weight: 700; color: #1f2937; font-family: "SF Mono", monospace; }
+  table {
+    width: 100%; border-collapse: collapse; background: white;
+    border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    font-size: 14px;
+  }
+  th, td { padding: 14px 18px; text-align: center; }
+  thead th {
+    background: #f9fafb; font-weight: 700; color: #374151;
+    border-bottom: 2px solid #d1d5db; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  tbody td { border-bottom: 1px solid #e5e7eb; }
+  tbody tr:last-child td { border-bottom: none; }
+  .depth-cell {
+    text-align: left; font-family: "SF Mono", monospace;
+    font-weight: 700; font-size: 16px;
+  }
+  .depth-bad { color: #dc2626; }
+  .depth-warn { color: #ca8a04; }
+  .depth-ok { color: #16a34a; }
+  .ratio { font-size: 18px; font-weight: 700; }
+  .ratio-bad { color: #dc2626; }
+  .ratio-warn { color: #ca8a04; }
+  .ratio-ok { color: #16a34a; }
+  .bar {
+    width: 100%; max-width: 280px; height: 24px; background: #e5e7eb;
+    border-radius: 4px; overflow: hidden; margin: 6px auto 0; position: relative;
+  }
+  .bar-fill { height: 100%; transition: width 0.3s; }
+  .bar-bad { background: #dc2626; }
+  .bar-warn { background: #f59e0b; }
+  .bar-ok { background: #22c55e; }
+  .bar-text {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: white; font-size: 11px; font-weight: 700;
+  }
+  .conclusion {
+    margin-top: 24px; padding: 18px 22px; border-radius: 8px;
+    background: #fef3c7; border-left: 4px solid #f59e0b;
+    color: #78350f; font-size: 14px; line-height: 1.6;
+  }
+  .conclusion strong { color: #451a03; }
+  .footer { color: #9ca3af; font-size: 11.5px; margin-top: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Depth = 10mb 也會失敗的情境</h1>
+  <div class="subtitle">
+    證明 <code>stream.reassembly.depth: 10mb</code> 只是把 fail point 往後推，不是根治
+  </div>
+
+  <div class="scenario">
+    <div class="label">測試流量</div>
+    <div class="value">60 × 200KB POSTs + 20 GETs 在單一 keepalive TCP 連線上（累積 11.7MB toserver）</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>stream.reassembly.depth</th>
+        <th>偵測到的 HTTP tx</th>
+        <th>method 解析失敗</th>
+        <th>anomaly events</th>
+        <th>depth_reached</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="depth-cell depth-bad">1mb</td>
+        <td>60 / 60</td>
+        <td>
+          <span class="ratio ratio-bad">54 / 60</span>
+          <div class="bar"><div class="bar-fill bar-bad" style="width: 90%"></div><span class="bar-text">90% 壞</span></div>
+        </td>
+        <td>55</td>
+        <td>1 (hit)</td>
+      </tr>
+      <tr>
+        <td class="depth-cell depth-warn">10mb <span style="font-size: 11px; color: #6b7280;">(本次調整值)</span></td>
+        <td>60 / 60</td>
+        <td>
+          <span class="ratio ratio-warn">8 / 60</span>
+          <div class="bar"><div class="bar-fill bar-warn" style="width: 13.3%"></div><span class="bar-text">13% 壞</span></div>
+        </td>
+        <td>9</td>
+        <td>1 (hit)</td>
+      </tr>
+      <tr>
+        <td class="depth-cell depth-ok">20mb</td>
+        <td>60 / 60</td>
+        <td>
+          <span class="ratio ratio-ok">0 / 60</span>
+          <div class="bar"><div class="bar-fill bar-ok" style="width: 100%"></div><span class="bar-text">0% 壞</span></div>
+        </td>
+        <td>0</td>
+        <td>0 (not hit)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="conclusion">
+    <strong>結論：</strong>depth 是一個 threshold，<strong>不是修正</strong>。
+    這次調整把 1mb → 10mb 解掉了 2MB POST 的場景（90% → 0%），
+    但同一條 keepalive 連線只要累積 toserver bytes 超過 10mb（例如批量上傳、長連線串小 POST），
+    bug 還是會回來，只是受影響比例變小。
+    <br><br>
+    <strong>根本解法</strong>還是回到 lua shape validation（攔截下游錯誤）或 fork Suricata 補 <code>HttpGetRequestMethod</code> wrapper（直接用 parser-validated method）。
+  </div>
+
+  <div class="footer">
+    Source: <code>tests/depth-regression/pcap/traffic-60post.pcap</code> &middot;
+    <code>tests/depth-regression/results-60post/{1mb,10mb,20mb}/eve.json</code>
+  </div>
+
+</div>
+</body>
+</html>

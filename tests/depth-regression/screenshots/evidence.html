@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>HTTP Method 切錯 — 對照證據</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+    margin: 0; padding: 28px; background: #f3f4f6; color: #111827;
+    line-height: 1.5;
+  }
+  .container { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px 0; font-weight: 700; }
+  .subtitle { color: #6b7280; margin-bottom: 28px; font-size: 14px; }
+  .section {
+    background: white; border-radius: 10px; padding: 22px;
+    margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .section h2 {
+    font-size: 17px; margin: 0 0 14px 0; color: #111827;
+    border-left: 4px solid #2563eb; padding-left: 11px;
+    font-weight: 600;
+  }
+  pre {
+    font-family: "SF Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace;
+    font-size: 12.5px; line-height: 1.55; margin: 0;
+    white-space: pre; tab-size: 2;
+  }
+  .hex {
+    background: #1f2937; color: #e5e7eb;
+    padding: 14px 16px; border-radius: 6px; overflow-x: auto;
+  }
+  .hex .ascii { color: #93c5fd; }
+  .http-parsed {
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    padding: 12px 14px; border-radius: 6px; margin: 0 0 10px 0;
+    color: #1e3a8a;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .pass-box { padding: 16px; border-radius: 8px; min-height: 100%; }
+  .pass-broken { background: #fef2f2; border: 2px solid #ef4444; }
+  .pass-correct { background: #f0fdf4; border: 2px solid #22c55e; }
+  .pass-label {
+    font-size: 15px; font-weight: 700; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .pass-broken .pass-label { color: #b91c1c; }
+  .pass-correct .pass-label { color: #15803d; }
+  .pass-box pre { background: rgba(255,255,255,0.6); padding: 10px 12px; border-radius: 4px; }
+  .missing { color: #dc2626; font-style: italic; }
+  .field-bad { background: #fde68a; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+  .field-ok { background: #bbf7d0; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table th, table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+  table th { background: #f9fafb; font-weight: 600; color: #374151; }
+  .num-red { color: #dc2626; font-weight: 700; }
+  .num-green { color: #15803d; font-weight: 700; }
+  .num-neutral { color: #4b5563; font-weight: 600; }
+  .footer { color: #9ca3af; font-size: 11.5px; margin-top: 18px; text-align: center; }
+  .note { color: #6b7280; font-size: 12.5px; margin-top: 6px; font-style: italic; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle;
+  }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>HTTP Method 切錯 — 對照證據</h1>
+  <div class="subtitle">
+    同一筆 pcap、單一 TCP keepalive 連線、2MB POST + 50 GETs；
+    差別只在 <code>stream.reassembly.depth</code> &mdash; 2026-05-18
+  </div>
+
+  <div class="section">
+    <h2>1. Wire 實際 bytes（pcap frame 109 = tx_id 5）<span class="badge badge-blue">tshark -V -x</span></h2>
+    <div class="http-parsed">
+<pre>GET /path5 HTTP/1.1
+Host: 172.30.0.10
+User-Agent: python-requests/2.34.2
+Accept-Encoding: gzip, deflate
+Accept: */*
+Connection: keep-alive</pre>
+    </div>
+    <pre class="hex">0040            47 45 54 20 2f 70 61 74 68 35 20 48 54 54   <span class="ascii">..GET /path5 HTT</span>
+0050  50 2f 31 2e 31 0d 0a 48 6f 73 74 3a 20 31 37 32   <span class="ascii">P/1.1..Host: 172</span>
+0060  2e 33 30 2e 30 2e 31 30 0d 0a 55 73 65 72 2d 41   <span class="ascii">.30.0.10..User-A</span>
+0070  67 65 6e 74 3a 20 70 79 74 68 6f 6e 2d 72 65 71   <span class="ascii">gent: python-req</span>
+0080  75 65 73 74 73 2f 32 2e 33 34 2e 32 0d 0a 41 63   <span class="ascii">uests/2.34.2..Ac</span>
+0090  63 65 70 74 2d 45 6e 63 6f 64 69 6e 67 3a 20 67   <span class="ascii">cept-Encoding: g</span>
+00a0  7a 69 70 2c 20 64 65 66 6c 61 74 65 0d 0a 41 63   <span class="ascii">zip, deflate..Ac</span>
+00b0  63 65 70 74 3a 20 2a 2f 2a 0d 0a 43 6f 6e 6e 65   <span class="ascii">cept: */*..Conne</span>
+00c0  63 74 69 6f 6e 3a 20 6b 65 65 70 2d 61 6c 69 76   <span class="ascii">ction: keep-aliv</span>
+00d0  65 0d 0a 0d 0a                                    <span class="ascii">e....</span></pre>
+    <div class="note">Wire 上完全合法的 HTTP/1.1 request，沒有 malformed</div>
+  </div>
+
+  <div class="section">
+    <h2>2. Suricata 8.0 對同一筆 tx_id=5 的 eve.json 輸出</h2>
+    <div class="grid">
+      <div class="pass-box pass-broken">
+        <div class="pass-label">❌ depth: 1mb &mdash; 切錯</div>
+<pre>{
+  "tx_id": 5,
+  "pcap_cnt": 111,
+  "src_ip": "172.30.0.2",
+  "dest_ip": "172.30.0.10",
+  "http": {
+    "url": <span class="field-bad">"/libhtp::request_uri_not_seen"</span>,
+    "http_content_type": "application/octet-stream",
+    <span class="missing">// http_method  &lt;missing&gt;</span>
+    <span class="missing">// hostname     &lt;missing&gt;</span>
+    <span class="missing">// http_user_agent &lt;missing&gt;</span>
+    <span class="missing">// protocol     &lt;missing&gt;</span>
+    "status": 200,
+    "length": 3
+  }
+}</pre>
+      </div>
+      <div class="pass-box pass-correct">
+        <div class="pass-label">✅ depth: 10mb &mdash; 正確</div>
+<pre>{
+  "tx_id": 5,
+  "pcap_cnt": 111,
+  "src_ip": "172.30.0.2",
+  "dest_ip": "172.30.0.10",
+  "http": {
+    "url": <span class="field-ok">"/path5"</span>,
+    "http_content_type": "application/octet-stream",
+    "http_method": <span class="field-ok">"GET"</span>,
+    "hostname": <span class="field-ok">"172.30.0.10"</span>,
+    "http_user_agent": <span class="field-ok">"python-requests/2.34.2"</span>,
+    "protocol": <span class="field-ok">"HTTP/1.1"</span>,
+    "status": 200,
+    "length": 3
+  }
+}</pre>
+      </div>
+    </div>
+    <div class="note">
+      左：libhtp 在 stream 截斷後放棄 parse 同一條 TCP stream 後續 request &rarr;
+      <code>tx-&gt;request_line</code> 沒填，eve.json 整組欄位缺失，<code>url</code> 是 libhtp sentinel 字串
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>3. 全 pcap 統計（17 個 HTTP tx，2.1MB pcap）</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 60%;">指標</th>
+          <th style="width: 20%;">depth: 1mb</th>
+          <th style="width: 20%;">depth: 10mb</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>HTTP events 內 <code>http_method</code> 缺失</td>
+          <td class="num-red">16 / 17</td>
+          <td class="num-green">0 / 17</td>
+        </tr>
+        <tr>
+          <td>Anomaly events（<code>stream.reassembly_depth_reached</code>、<code>UNABLE_TO_MATCH_RESPONSE_TO_REQUEST</code>）</td>
+          <td class="num-red">17</td>
+          <td class="num-green">0</td>
+        </tr>
+        <tr>
+          <td><code>stats.tcp.stream_depth_reached</code></td>
+          <td class="num-red">1</td>
+          <td class="num-green">0</td>
+        </tr>
+        <tr>
+          <td>偵測到的 HTTP tx 總數</td>
+          <td class="num-neutral">17</td>
+          <td class="num-neutral">17</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    Source: <code>tests/depth-regression/pcap/traffic.pcap</code> &middot;
+    <code>tests/depth-regression/results/{1mb,10mb}/eve.json</code> &middot;
+    Suricata 8.0.0 (jasonish/suricata:8.0.0)
+  </div>
+
+</div>
+</body>
+</html>
