@@ -219,7 +219,10 @@ stream:
   inline: auto
   reassembly:
     memcap: 6gb
-    depth: 1mb
+    # Raised from default 1mb to 10mb per OISF Bug #6874: libhtp stops parsing
+    # subsequent requests in a TCP stream once reassembly depth is hit, which
+    # surfaces as /libhtp::request_uri_not_seen and garbled tx->request_line.
+    depth: 10mb
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
     randomize-chunk-size: yes

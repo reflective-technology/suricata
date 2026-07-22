@@ -141,12 +141,16 @@ function extract_http_variables()
     src_port = src_port or ""
     dest_port = dest_port or ""
 
-    local method = HttpGetRequestLine() or ""
-    method = method:match("^(%S+)") or ""
+    -- HttpGetRequestLine() returns raw wire bytes; non-HTTP traffic or malformed
+    -- requests can put a URI/garbage in the method slot. Require an uppercase
+    -- token followed by SP (RFC 9110 §9.1) so URIs like "/api/foo" fall back to "".
+    local method = (HttpGetRequestLine() or ""):match("^([A-Z][A-Z%-]*)%s") or ""
     local hostname = HttpGetRequestHost() or ""
     local uri = HttpGetRequestUriRaw() or ""
     local status_line = HttpGetResponseLine() or ""
-    local status = status_line:match("HTTP/[%d%.]+%s+(%d+)") or ""
+    -- RFC 7230 §3.1.2: status-line begins with HTTP/<digit>.<digit> SP <3DIGIT>.
+    -- Anchoring and fixing the digit counts rejects garbled response lines.
+    local status = status_line:match("^HTTP/%d%.%d%s+(%d%d%d)") or ""
 
     -- Parse URI to separate path and query
     local uri_path = ""
@@ -199,13 +203,9 @@ function extract_http_variables()
     local x_forwarded_host = HttpGetRequestHeader("X-Forwarded-Host") or ""
     local x_powered_by = HttpGetResponseHeader("X-Powered-By") or ""
 
-    -- Extract HTTP version from response line
-    local version = "HTTP/1.1"
-    local response_line = HttpGetResponseLine() or ""
-    local version_match = response_line:match("(HTTP/[%d%.]+)")
-    if version_match then
-        version = version_match
-    end
+    -- Extract HTTP version from response line. Anchored, single-digit major/minor
+    -- per RFC 7230 §2.6; default stays HTTP/1.1 when the line is garbled.
+    local version = status_line:match("^(HTTP/%d%.%d)") or "HTTP/1.1"
 
     return {
         timestamp = timestamp,
