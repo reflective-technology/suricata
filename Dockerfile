@@ -3,7 +3,10 @@ FROM docker.io/jasonish/suricata:7.0.16 AS prod
 # AlmaLinux/EPEL repos at build time, which can bump the dpdk SONAME (e.g.
 # 25 -> 26) and break the precompiled suricata binary in the base image,
 # which is linked against the dpdk version it shipped with.
-RUN dnf -y install nss nss-softokn lua lua-json lua-socket && \
+RUN dnf -y install --nobest --setopt=install_weak_deps=False \
+    python3-dnf-plugin-versionlock nss nss-softokn lua lua-json lua-socket  && \
+    dnf -y versionlock dpdk dpdk-devel && \
+    dnf -y update --nobest --setopt=install_weak_deps=False && \
     dnf -y clean all && \
     rm -rf /var/cache/dnf/*
 COPY configs/suricata.yaml /etc/suricata/suricata.yaml
