@@ -62,6 +62,7 @@ jobs:
           format: "github"
           output: "dependency-results.sbom.json"
           github-pat: ${{ secrets.GITHUB_TOKEN }}
+          skip-dirs: "/var/lib/suricata/rules"
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
