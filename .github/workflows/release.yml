@@ -41,7 +41,7 @@ jobs:
             latest=false
             suffix=-${{ matrix.arch }},onlatest=false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
         with:
           buildkitd-config-inline: ${{ vars.BUILDKITD_CONFIG }}
       - name: Login to GitHub Container Registry
@@ -98,7 +98,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
         with:
           buildkitd-config-inline: ${{ vars.BUILDKITD_CONFIG }}
       - name: Docker meta
@@ -144,7 +144,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
         with:
           buildkitd-config-inline: ${{ vars.BUILDKITD_CONFIG }}
       - name: Push image to ECR
