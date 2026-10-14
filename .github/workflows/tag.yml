@@ -11,10 +11,13 @@ jobs:
     permissions:
       contents: read
     outputs:
-      version: ${{ steps.get_version.outputs.version }}
+      value: ${{ steps.get_version.outputs.value }}
+      tagged: ${{ steps.tagged.outputs.tagged }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-tags: true
       - name: Get Version
         id: get_version
         run: |
@@ -24,36 +27,41 @@ jobs:
             echo "VERSION file not found, using default version 0.0.0"
             version="0.0.0"
           fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-      - name: Debug Version
-        run: echo "VERSION=${{ steps.get_version.outputs.version }}"
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+      - name: "Check: if the version has corresponding git tag"
+        id: tagged
+        shell: bash
+        run: |
+          git show-ref --tags --verify --quiet -- "refs/tags/v${{ steps.get_version.outputs.value }}" &&
+          echo "tagged=0" >> $GITHUB_OUTPUT ||
+          echo "tagged=1" >> $GITHUB_OUTPUT
   tag:
     runs-on: ubuntu-latest
     needs: version
-    if: needs.version.outputs.version != '0.0.0'
+    if: needs.version.outputs.value != '0.0.0' && needs.version.outputs.tagged == '1'
     permissions:
       contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-          fetch-tags: true
       - name: Generate a token
         id: generate-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
-          client-id: ${{ vars.APP_ID }}
+          client-id: ${{ vars.TAG_GITHUB_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - name: Push tag
         id: tag_version
-        uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b
+        uses: reflective-technology/github-tag-action@d86631af8dd0eea19a0c631fb26129f831addfa1
         with:
           github_token: ${{ steps.generate-token.outputs.token }}
           tag_prefix: "v"
-          custom_tag: ${{ needs.version.outputs.version }}
+          custom_tag: ${{ needs.version.outputs.value }}
       - uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd
         with:
+          immutableCreate: true
+          makeLatest: ${{ !contains(needs.version.outputs.value, 'rc') }}
+          prerelease: ${{ contains(needs.version.outputs.value, 'rc') }}
           generateReleaseNotes: true
           skipIfReleaseExists: true
           tag: ${{ steps.tag_version.outputs.new_tag }}
