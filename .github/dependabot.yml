@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     groups:
       regular-updates:
         applies-to: version-updates
@@ -16,7 +16,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     ignore:
       - dependency-name: "jasonish/suricata"
-        versions: [ ">= 8.0.0" ]
+        versions: [">= 8.0.0"]
