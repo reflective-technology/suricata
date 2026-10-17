@@ -1,3 +1,6 @@
+# Suricata 8 sensor with native EVE output and a Vector sidecar that ships it to
+# Kafka (topic lgshlgs, parsed by the cyberconnector-v2 pcap_eve pipeline) and
+# request-body signals to pcap-body-signal-v1.
 services:
   suricata:
     image: ghcr.io/reflective-technology/suricata:latest
@@ -7,13 +10,30 @@ services:
       - NET_RAW
       - NET_ADMIN
       - SYS_NICE
-    environment:
-      - SYSLOG_HOST=127.0.0.1
-      - SYSLOG_PORT=514
-      - HTTP_BODY_MAX_SIZE=1024
-      - TCP_MAX_RETRIES=10
-      - TCP_RETRY_DELAY=10
-      - REDACT_SENSITIVE_HEADERS=true
-      - ENABLE_RAW_CAPTURE=false
-    command: [ "-i eth0" ]
+    command: [ "-i", "eth0" ]
+    volumes:
+      - suricata-log:/var/log/suricata
     restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2.0
+
+  vector:
+    image: timberio/vector:0.49.0-debian
+    container_name: suricata-vector
+    environment:
+      - KAFKA_SERVER=kafka:9092
+      - SENSOR_ID=sensor-1
+      - SENSOR_IP=10.0.0.1
+      - PROJECT_ID=project-id
+      - RULESET_VERSION=body-v1
+    volumes:
+      - ../configs/vector.yaml:/etc/vector/vector.yaml:ro
+      - suricata-log:/var/log/suricata
+      - vector-data:/var/lib/vector
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+
+volumes:
+  suricata-log:
+  vector-data:

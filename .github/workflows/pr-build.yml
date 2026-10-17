@@ -6,6 +6,17 @@ on:
 env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 jobs:
+  vector-config:
+    name: vector config tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: vector test
+        run: |
+          docker run --rm -e KAFKA_SERVER=localhost:9092 -v "$PWD/configs/vector.yaml:/etc/vector/vector.yaml:ro" \
+            timberio/vector:0.49.0-debian test /etc/vector/vector.yaml
   build-image:
     name: build image
     runs-on: ubuntu-latest

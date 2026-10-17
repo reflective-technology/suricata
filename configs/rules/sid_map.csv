@@ -1,0 +1,17 @@
+ruleset_version,sid,category
+body-v1,9100001,sqli
+body-v1,9100002,sqli
+body-v1,9100003,sqli
+body-v1,9100004,sqli
+body-v1,9100005,sqli
+body-v1,9100006,sqli
+body-v1,9100007,sqli
+body-v1,9100008,xss
+body-v1,9100009,xss
+body-v1,9100010,xss
+body-v1,9100011,xss
+body-v1,9100012,xss
+body-v1,9100013,cmdi
+body-v1,9100014,cmdi
+body-v1,9100015,traversal
+body-v1,9100016,traversal
