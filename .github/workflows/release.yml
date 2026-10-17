@@ -148,8 +148,14 @@ jobs:
         with:
           buildkitd-config-inline: ${{ vars.BUILDKITD_CONFIG }}
       - name: Push image to ECR
+        env:
+          VERSION: ${{ needs.merge.outputs.version }}
+          ECR_IMAGE: ${{ steps.login-ecr-public.outputs.registry }}/${{ env.IMAGE_NAME }}
         run: |
-          docker buildx imagetools create \
-            --tag ${{ steps.login-ecr-public.outputs.registry }}/${{ env.IMAGE_NAME }}:latest \
-            --tag ${{ steps.login-ecr-public.outputs.registry }}/${{ env.IMAGE_NAME }}:${{ needs.merge.outputs.version }} \
-            ${{ env.REGISTRY_IMAGE }}:${{ needs.merge.outputs.version }}
+          tags="--tag $ECR_IMAGE:$VERSION"
+          # pre-releases (e.g. 8.0.7-rc1) never move :latest
+          case "$VERSION" in
+            *-*) echo "pre-release $VERSION: not tagging latest" ;;
+            *) tags="$tags --tag $ECR_IMAGE:latest" ;;
+          esac
+          docker buildx imagetools create $tags ${{ env.REGISTRY_IMAGE }}:$VERSION
