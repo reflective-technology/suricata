@@ -6,21 +6,41 @@ default-log-dir: /var/log/suricata/
 # Engine statistics such as packet counters, memory use counters and others can be logged in several ways. 
 stats:
   enabled: yes
-  interval: 60
+  interval: 10   # also advances the collector's frontier on idle sensors
   totals: yes # stats for all threads merged together
 
 outputs:
-  - lua:
-      enabled: yes
-      scripts-dir: /etc/suricata
-      scripts:
-        - http_custom.lua
-  # Engine counters (capture drops, memcap drops, reassembly gaps). Without a
-  # stats output these are not observable. ~9 MB/day at a 60 s interval.
+  # Native EVE replaces http_custom.lua. Files rotate hourly; the Vector sidecar
+  # (configs/vector.yaml) ships them to Kafka and deletes them an hour after it
+  # has read them to the end, so raw EVE stays on the sensor for hours only.
   - eve-log:
       enabled: yes
       filetype: regular
-      filename: eve-stats.json
+      filename: eve-%Y%m%d-%H.json
+      rotate-interval: hour
+      # threaded: no -- threaded EVE gives no gain at 2 workers and slows the collector down
+      threaded: no
+      filemode: 600
+      types:
+        - http:
+            extended: yes
+            # every header the rules / KV contract use, plus transfer-encoding for the
+            # request-body inspection state; authorization / cookie / set-cookie values
+            # are masked by Vector before they leave the sensor
+            custom: [accept, accept-language, content-length, content-type, server, location, connection, x-forwarded-for,
+                     authorization, cookie, set-cookie, etag, last-modified, x-forwarded-host, x-powered-by, transfer-encoding]
+        # HTTP/2 transactions are only logged with an explicit http2 type
+        - http2
+        - flow
+        - alert:
+            metadata: yes
+            tagged-packets: no
+  # Engine counters, also the collector's idle heartbeat for the body-signal frontier
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: stats-%Y%m%d-%H.json
+      rotate-interval: hour
       types:
         - stats:
             totals: yes
@@ -169,9 +189,7 @@ host-os-policy:
 # Occasionally network packets appear fragmented. 
 # Fragmented packets exist of many parts, the packets have to be reconstructed.
 # This will be done by a component of Suricata; the defragment-engine
-# Memcaps must sum below the container memory limit (4g): otherwise the cgroup
-# OOM killer fires before any memcap, turning countable drops into a restart.
-# 128mb + 256mb + 256mb + 1gb = 1.6 GiB.
+# Memcaps sum below the container memory limit (4g): 128mb + 256mb + 256mb + 1gb.
 defrag:
   memcap: 128mb
   hash-size: 65536
@@ -265,9 +283,8 @@ spm-algo: auto
 
 af-packet:
   - interface: default
-    # `auto` sizes from the host's online CPUs (16), not from the container's CPU
-    # limit, giving 16 workers per interface. 1 per interface = 2 workers for
-    # the two capture interfaces under cpus: 2.0.
+    # `auto` sizes from the host's online CPUs, not from the container's CPU limit.
+    # 1 per interface = 2 workers for the two capture interfaces under cpus: 2.0.
     threads: 1
     cluster-type: cluster_flow
     defrag: yes
@@ -362,8 +379,16 @@ app-layer-error-policy: ignore
 plugin:
   - /usr/local/lib/suricata/python/suricata-verify.py
 
+# Detection runs only for the request-body marker ruleset (rules/body.rules, ruleset body-v1);
+# alerts are markers for request-body signals, nothing is blocked.
 detect:
-  enabled: no
+  enabled: yes
+
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - body.rules
+classification-file: /etc/suricata.dist/classification.config
+reference-config-file: /etc/suricata.dist/reference.config
 
 vars:
   address-groups:
