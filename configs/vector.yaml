@@ -1,0 +1,180 @@
+# Vector sidecar for the Suricata sensor: ships EVE to Kafka without parsing
+# HTTP events (design (b), reflective-technology/http-collector-poc).
+# Environment: KAFKA_SERVER, SENSOR_ID, SENSOR_IP, PROJECT_ID, RULESET_VERSION
+# (empty RULESET_VERSION = no request-body ruleset on this sensor).
+#   http   -> regex mask on the raw line -> syslog-ng-shaped envelope -> Kafka lgshlgs (tag pcap_eve)
+#   alert  -> parsed (alerts are rare) -> Kafka pcap-body-signal-v1
+#   frontier: per 5 s window, the maximum EVE timestamp over every event that passed
+#             (http, alert and Suricata stats, so idle sensors still advance); emitted
+#             when the window closes, after that window's alerts entered the same sink
+data_dir: /var/lib/vector
+acknowledgements:
+  enabled: true
+
+sources:
+  eve_files:
+    type: file
+    include: ["/var/log/suricata/eve-*.json", "/var/log/suricata/stats-*.json"]
+    # Suricata rotates hourly; delete a file one hour after it was read to the end
+    # (events already read sit in the disk buffers below)
+    remove_after_secs: 3600
+    read_from: beginning
+    fingerprint:
+      strategy: checksum
+    max_line_bytes: 4194304
+  vector_metrics:
+    type: internal_metrics
+    scrape_interval_secs: 2
+
+transforms:
+  route:
+    type: route
+    inputs: [eve_files]
+    route:
+      http: 'contains(string!(.message), "\"event_type\":\"http\"")'
+      alert: 'contains(string!(.message), "\"event_type\":\"alert\"")'
+      stats: 'contains(string!(.message), "\"event_type\":\"stats\"")'
+
+  http_envelope:
+    type: remap
+    inputs: [route.http]
+    source: |
+      m = string!(.message)
+      m = replace(m, r'(?i)([?&](token|access_token|api_key|apikey|sig|signature|password)=)[^&"\\]*', "$${1}[REDACTED]")
+      m = replace(m, r'(?i)("name":"(cookie|set-cookie|authorization)","value":")(?:[^"\\]|\\.)*"', "$${1}[REDACTED]\"")
+      . = {
+        "message": m,
+        "tags": ["pcap_eve"],
+        "raw_host_name": get_env_var("SENSOR_ID") ?? "suricata",
+        "raw_host_ip": get_env_var("SENSOR_IP") ?? "",
+        "raw_body_ruleset_version": get_env_var("RULESET_VERSION") ?? "",
+        "raw_sensor_id": get_env_var("SENSOR_ID") ?? "suricata"
+      }
+
+  body_signal:
+    type: remap
+    inputs: [route.alert]
+    source: |
+      e = parse_json!(string!(.message))
+      # EVE "2026-10-17T01:57:40.159657+0000" -> RFC 3339 UTC with microseconds
+      t = parse_timestamp(string(e.timestamp) ?? "", "%Y-%m-%dT%H:%M:%S%.6f%z") ?? now()
+      . = {
+        "type": "alert",
+        "project_id": get_env_var("PROJECT_ID") ?? "",
+        "sensor_id": get_env_var("SENSOR_ID") ?? "suricata",
+        "flow_id": e.flow_id,
+        "tx_id": e.tx_id,
+        "h2_stream_id": to_int(e.http.http2.stream_id) ?? 0,
+        "sid": e.alert.signature_id,
+        "ruleset_version": get_env_var("RULESET_VERSION") ?? "",
+        "ts": format_timestamp!(t, "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
+      }
+
+  frontier_ts:
+    type: remap
+    inputs: [route.http, route.alert, route.stats]
+    # an event without a parseable timestamp must not move the frontier: drop it
+    drop_on_error: true
+    source: |
+      m = parse_regex!(string!(.message), r'"timestamp":"(?P<ts>[^"]+)"')
+      t = parse_timestamp!(m.ts, "%Y-%m-%dT%H:%M:%S%.6f%z")
+      . = {"k": "frontier", "ts_us": to_unix_timestamp(t, unit: "microseconds")}
+
+  frontier_window:
+    type: reduce
+    inputs: [frontier_ts]
+    group_by: [k]
+    expire_after_ms: 5000
+    end_every_period_ms: 5000
+    merge_strategies:
+      ts_us: max
+
+  frontier:
+    type: remap
+    inputs: [frontier_window]
+    source: |
+      t = from_unix_timestamp!(to_int!(.ts_us), unit: "microseconds")
+      . = {"type": "frontier", "project_id": get_env_var("PROJECT_ID") ?? "", "sensor_id": get_env_var("SENSOR_ID") ?? "suricata",
+           "eve_ts_max": format_timestamp!(t, "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")}
+
+sinks:
+  kafka_lgshlgs:
+    type: kafka
+    inputs: [http_envelope]
+    bootstrap_servers: "${KAFKA_SERVER}"
+    topic: lgshlgs
+    encoding:
+      codec: json
+    message_timeout_ms: 300000
+    buffer:
+      type: disk
+      max_size: 2147483648
+      when_full: block
+    acknowledgements:
+      enabled: true
+
+  kafka_body_signal:
+    type: kafka
+    inputs: [body_signal, frontier]
+    bootstrap_servers: "${KAFKA_SERVER}"
+    topic: pcap-body-signal-v1
+    key_field: sensor_id
+    encoding:
+      codec: json
+    message_timeout_ms: 300000
+    buffer:
+      type: disk
+      max_size: 536870912
+      when_full: block
+    acknowledgements:
+      enabled: true
+
+  metrics:
+    type: prometheus_exporter
+    inputs: [vector_metrics]
+    address: 0.0.0.0:9598
+
+tests:
+  - name: http envelope masks secrets and keeps header presence
+    inputs:
+      - insert_at: http_envelope
+        type: log
+        log_fields:
+          message: '{"event_type":"http","http":{"url":"\/a?token=SECRETCANARY-1&x=1","request_headers":[{"name":"Cookie","value":"sid=SECRETCANARY-2"}]}}'
+    outputs:
+      - extract_from: http_envelope
+        conditions:
+          - type: vrl
+            source: |
+              assert!(!contains(string!(.message), "SECRETCANARY"))
+              assert!(contains(string!(.message), "\"name\":\"Cookie\",\"value\":\"[REDACTED]\""))
+              assert_eq!(.tags, ["pcap_eve"])
+  - name: alert becomes a body signal
+    inputs:
+      - insert_at: body_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"alert","flow_id":42,"tx_id":3,"alert":{"signature_id":9100001}}'
+    outputs:
+      - extract_from: body_signal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.flow_id, 42)
+              assert_eq!(.tx_id, 3)
+              assert_eq!(.sid, 9100001)
+              assert_eq!(.h2_stream_id, 0)
+              assert_eq!(.ts, "2026-10-17T01:57:40.159657Z")
+  - name: frontier timestamp in microseconds
+    inputs:
+      - insert_at: frontier_ts
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"stats"}'
+    outputs:
+      - extract_from: frontier_ts
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.ts_us, 1792202260159657)
+              assert_eq!(.k, "frontier")
