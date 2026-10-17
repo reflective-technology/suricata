@@ -24,8 +24,8 @@ function setup (args)
     --file = assert(io.open(filename, "a"))
 
     -- Establish TCP connection to syslog server
-    tcp_max_retries = tonumber(os.getenv("TCP_MAX_RETRIES")) or 10
-    tcp_retry_delay = tonumber(os.getenv("TCP_RETRY_DELAY")) or 10
+    -- TCP_MAX_RETRIES / TCP_RETRY_DELAY are no longer used: blocking retries
+    -- at startup are replaced by rate-limited reconnects while running.
     tcp_client = establish_tcp_connection(0)
 
     -- load the required env variables
@@ -41,26 +41,34 @@ function setup (args)
 
 end
 
+-- log() runs on the packet threads, so no socket call may block them: every
+-- call is bounded by SOCKET_TIMEOUT, a failed send is counted and dropped
+-- (never retried inline), and reconnects are single attempts at most once per
+-- RECONNECT_SECS. Counters go to stdout (container log) every STATS_SECS.
+out_sent = 0
+out_failed = 0
+out_last_reconnect = 0
+out_last_stats = 0
+out_timeout = tonumber(os.getenv("SOCKET_TIMEOUT")) or 0.05
+out_reconnect_secs = tonumber(os.getenv("RECONNECT_SECS")) or 5
+out_stats_secs = tonumber(os.getenv("STATS_SECS")) or 60
+
 function establish_tcp_connection(tcp_retried_times)
     local socket = require("socket")
     local syslog_host = os.getenv("SYSLOG_HOST") or "127.0.0.1"
     local syslog_port = os.getenv("SYSLOG_PORT") or 514
-    tcp_client = socket.tcp()
-    local result, err = tcp_client:connect(syslog_host, syslog_port)
+    out_last_reconnect = socket.gettime()
+    local client = socket.tcp()
+    client:settimeout(out_timeout)
+    local result, err = client:connect(syslog_host, syslog_port)
     if not result then
         print("Error: Failed to connect to syslog server: " .. (err or "unknown error"))
-        if tcp_retried_times < tcp_max_retries then
-            print("Reconnect to the syslog serer on the", tcp_retried_times + 1, " times")
-            socket.sleep(tcp_retry_delay)
-            tcp_client = establish_tcp_connection(tcp_retried_times + 1)
-        else
-            print("Stop reconnecting to the syslog server as the max_retries exceeded")
-            tcp_client = nil
-        end
-    else
-        print("Info: Connected to remote syslog server: " .. syslog_host .. ":" .. syslog_port)
+        client:close()
+        return nil
     end
-    return tcp_client
+    client:settimeout(out_timeout)
+    print("Info: Connected to remote syslog server: " .. syslog_host .. ":" .. syslog_port)
+    return client
 end
 
 function calculate_request_headers_size()
@@ -344,19 +352,34 @@ function template_syslog_message(message)
 end
 
 function retry_establish_tcp_connection()
-    print("Start to retry the tcp connection")
+    local socket = require("socket")
+    if socket.gettime() - out_last_reconnect < out_reconnect_secs then
+        return
+    end
     tcp_client = establish_tcp_connection(0)
 end
 
 function sendToSyslogServer(syslog_format_message)
-    if tcp_client ~= nil then
-        local message, err = tcp_client:send(syslog_format_message)
-        if err == "closed" or err == "timeout" then
-            retry_establish_tcp_connection()
-        end
-    else
-        print("Failed to send the message as the tcp_client is nil")
+    if tcp_client == nil then
+        retry_establish_tcp_connection()
     end
+    if tcp_client == nil then
+        out_failed = out_failed + 1
+        return
+    end
+    local sent, err = tcp_client:send(syslog_format_message)
+    if sent == nil then
+        -- a partial write leaves the stream mid-line, so close and reconnect later
+        out_failed = out_failed + 1
+        tcp_client:close()
+        tcp_client = nil
+    else
+        out_sent = out_sent + 1
+    end
+end
+
+function print_output_stats()
+    print(string.format("Info: syslog output sent=%d failed=%d", out_sent, out_failed))
 end
 
 function getRequestBody()
@@ -425,6 +448,11 @@ function log(args)
     --print(message) -- test stage will uncomment this line for the parsing tests
 
     sendToSyslogServer(template_syslog_message(message))
+    local now = os.time()
+    if now - out_last_stats >= out_stats_secs then
+        out_last_stats = now
+        print_output_stats()
+    end
     --if file then
     --    file:write(message .. "\n")
     --    file:flush()
@@ -436,6 +464,7 @@ function deinit (args)
     --    file:close()
     --end
 
+    print_output_stats()
     if tcp_client then
         tcp_client:close()
         print("Info: Closed connection to remote syslog server")
