@@ -41,7 +41,14 @@ transforms:
     source: |
       m = string!(.message)
       m = replace(m, r'(?i)([?&](token|access_token|api_key|apikey|sig|signature|password)=)[^&"\\]*', "$${1}[REDACTED]")
-      m = replace(m, r'(?i)("name":"(cookie|set-cookie|authorization)","value":")(?:[^"\\]|\\.)*"', "$${1}[REDACTED]\"")
+      # Every header is logged (dump-all-headers), so mask any header whose name looks like a
+      # credential. The value keeps its decoded length as "[REDACTED:<n>]" so header byte sizes
+      # (bytes_in / bytes_out) can still be computed downstream; presence stays testable.
+      m = replace_with(m, r'(?i)("name":"[^"]*(?:cookie|authorization|token|secret|api[-_]?key|session|passw|signature|jwt|credential)[^"]*","value":")((?:[^"\\]|\\.)*)"') -> |h| {
+        v = string!(h.captures[1])
+        n = strlen(string(parse_json("\"" + v + "\"") ?? v) ?? v)
+        string!(h.captures[0]) + "[REDACTED:" + to_string(n) + "]\""
+      }
       . = {
         "message": m,
         "tags": ["pcap_eve"],
@@ -140,14 +147,23 @@ tests:
       - insert_at: http_envelope
         type: log
         log_fields:
-          message: '{"event_type":"http","http":{"url":"\/a?token=SECRETCANARY-1&x=1","request_headers":[{"name":"Cookie","value":"sid=SECRETCANARY-2"}]}}'
+          message: '{"event_type":"http","http":{"url":"\/a?token=SECRETCANARY-1&x=1","request_headers":[{"name":"Cookie","value":"sid=SECRETCANARY-2"},{"name":"Proxy-Authorization","value":"Basic SECRETCANARY-3"},{"name":"X-Api-Key","value":"SECRETCANARY-4"},{"name":"X-CSRF-Token","value":"a\"SECRETCANARY-5"},{"name":"Accept","value":"*\/*"}],"response_headers":[{"name":"Set-Cookie","value":"s=SECRETCANARY-6; Path=\/"},{"name":"Server","value":"nginx"}]}}'
     outputs:
       - extract_from: http_envelope
         conditions:
           - type: vrl
             source: |
-              assert!(!contains(string!(.message), "SECRETCANARY"))
-              assert!(contains(string!(.message), "\"name\":\"Cookie\",\"value\":\"[REDACTED]\""))
+              m = string!(.message)
+              assert!(!contains(m, "SECRETCANARY"))
+              # masked values keep their decoded length; other headers are untouched
+              assert!(contains(m, "{\"name\":\"Cookie\",\"value\":\"[REDACTED:18]\"}"))
+              assert!(contains(m, "{\"name\":\"Proxy-Authorization\",\"value\":\"[REDACTED:20]\"}"))
+              assert!(contains(m, "{\"name\":\"X-Api-Key\",\"value\":\"[REDACTED:14]\"}"))
+              assert!(contains(m, "{\"name\":\"X-CSRF-Token\",\"value\":\"[REDACTED:16]\"}"))
+              assert!(contains(m, "{\"name\":\"Set-Cookie\",\"value\":\"[REDACTED:24]\"}"))
+              assert!(contains(m, "{\"name\":\"Accept\",\"value\":\"*\\/*\"}"))
+              assert!(contains(m, "{\"name\":\"Server\",\"value\":\"nginx\"}"))
+              assert!(is_object(parse_json!(m)))
               assert_eq!(.tags, ["pcap_eve"])
   - name: alert becomes a body signal
     inputs:
