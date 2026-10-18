@@ -24,11 +24,11 @@ outputs:
       types:
         - http:
             extended: yes
-            # every header the rules / KV contract use, plus transfer-encoding for the
-            # request-body inspection state; authorization / cookie / set-cookie values
-            # are masked by Vector before they leave the sensor
-            custom: [accept, accept-language, content-length, content-type, server, location, connection, x-forwarded-for,
-                     authorization, cookie, set-cookie, etag, last-modified, x-forwarded-host, x-powered-by, transfer-encoding]
+            # every request and response header: the KV contract fields, transfer-encoding for
+            # the request-body inspection state, and exact header byte sizes for bytes_in /
+            # bytes_out; credential-like header values are masked by Vector (length kept)
+            # before they leave the sensor
+            dump-all-headers: both
         # HTTP/2 transactions are only logged with an explicit http2 type
         - http2
         - flow
