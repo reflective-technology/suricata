@@ -379,6 +379,13 @@ app-layer-error-policy: ignore
 plugin:
   - /usr/local/lib/suricata/python/suricata-verify.py
 
+# No Lua: this sensor has no Lua output scripts, and rules using the lua keyword are
+# rejected at load time. Suricata 8 always builds with Lua; this keeps it unused.
+security:
+  lua:
+    allow-rules: false
+    allow-restricted-functions: false
+
 # Detection runs only for the request-body marker ruleset (rules/body.rules, ruleset body-v1);
 # alerts are markers for request-body signals, nothing is blocked.
 detect:

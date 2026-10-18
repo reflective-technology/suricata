@@ -24,3 +24,14 @@ else
     echo "Test Failed: body.rules did not load cleanly" >&2
     exit 1
 fi
+
+# no Lua: a rule using the lua keyword is rejected by the security configuration
+lua=$(mktemp -d); chmod 755 "$lua"
+printf 'alert http any any -> any any (msg:"lua probe"; lua:probe.lua; sid:9199999; rev:1;)\n' > "$lua/lua.rules"
+printf 'function init(args) return {} end\nfunction match(args) return 1 end\n' > "$lua/probe.lua"
+if /usr/bin/suricata -T -v -c /etc/suricata/suricata.yaml -S "$lua/lua.rules" 2>&1 | grep -q "Lua rules disabled by security configuration"; then
+    echo "Test Passed: Lua rules rejected"
+else
+    echo "Test Failed: Lua rules are not rejected" >&2
+    exit 1
+fi
