@@ -9,6 +9,7 @@ A containerized [Suricata 8.0](https://suricata.io/) sensor that logs HTTP / HTT
 - Vector sidecar (`configs/vector.yaml`): masks secrets on the sensor, ships HTTP events to Kafka topic `lgshlgs` (tag `pcap_eve`) with acknowledgements and disk buffers, so a Kafka or downstream outage does not lose events
 - Optional request-body signals: a small marker ruleset (`configs/rules/body.rules`) flags injection patterns in request bodies; the alerts go to Kafka topic `pcap-body-signal-v1`. No request body text leaves the sensor
 - Only HTTP / HTTP2 / TLS application-layer parsing is enabled; memcaps are bounded below the container memory limit
+- No Lua: there are no Lua output scripts, and rules using the `lua` keyword are rejected at load time (`security.lua.allow-rules: false`). Suricata 8 always builds with Lua; it is present in the binary but unused
 
 ## Getting Started
 
