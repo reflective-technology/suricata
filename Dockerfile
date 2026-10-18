@@ -1,16 +1,13 @@
-FROM docker.io/jasonish/suricata:7.0.16 AS prod
-# Do not `dnf -y update` here: it pulls whatever dpdk is newest in the
-# AlmaLinux/EPEL repos at build time, which can bump the dpdk SONAME (e.g.
-# 25 -> 26) and break the precompiled suricata binary in the base image,
-# which is linked against the dpdk version it shipped with.
-RUN dnf -y install --nobest --setopt=install_weak_deps=False \
-    python3-dnf-plugin-versionlock nss nss-softokn lua lua-json lua-socket  && \
+FROM docker.io/jasonish/suricata:8.0.7 AS prod
+# Do not `dnf -y update` dpdk: a newer dpdk SONAME breaks the precompiled
+# suricata binary in the base image, so it stays version-locked.
+RUN dnf -y install --nobest --setopt=install_weak_deps=False python3-dnf-plugin-versionlock && \
     dnf -y versionlock dpdk dpdk-devel && \
     dnf -y update --nobest --setopt=install_weak_deps=False && \
     dnf -y clean all && \
     rm -rf /var/cache/dnf/*
 COPY configs/suricata.yaml /etc/suricata/suricata.yaml
-COPY configs/http_custom.lua /etc/suricata/http_custom.lua
+COPY configs/rules/ /etc/suricata/rules/
 
 FROM prod AS dev
 COPY tests /tests

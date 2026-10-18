@@ -6,15 +6,45 @@ default-log-dir: /var/log/suricata/
 # Engine statistics such as packet counters, memory use counters and others can be logged in several ways. 
 stats:
   enabled: yes
-  interval: 8
+  interval: 10   # also advances the collector's frontier on idle sensors
   totals: yes # stats for all threads merged together
 
 outputs:
-  - lua:
+  # Native EVE replaces http_custom.lua. Files rotate hourly; the Vector sidecar
+  # (configs/vector.yaml) ships them to Kafka and deletes them an hour after it
+  # has read them to the end, so raw EVE stays on the sensor for hours only.
+  - eve-log:
       enabled: yes
-      scripts-dir: /etc/suricata
-      scripts:
-        - http_custom.lua
+      filetype: regular
+      filename: eve-%Y%m%d-%H.json
+      rotate-interval: hour
+      # threaded: no -- threaded EVE gives no gain at 2 workers and slows the collector down
+      threaded: no
+      filemode: 600
+      types:
+        - http:
+            extended: yes
+            # every request and response header: the KV contract fields, transfer-encoding for
+            # the request-body inspection state, and exact header byte sizes for bytes_in /
+            # bytes_out; credential-like header values are masked by Vector (length kept)
+            # before they leave the sensor
+            dump-all-headers: both
+        # HTTP/2 transactions are only logged with an explicit http2 type
+        - http2
+        - flow
+        - alert:
+            metadata: yes
+            tagged-packets: no
+  # Engine counters, also the collector's idle heartbeat for the body-signal frontier
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: stats-%Y%m%d-%H.json
+      rotate-interval: hour
+      types:
+        - stats:
+            totals: yes
+            threads: no
 
 logging:
   default-log-level: notice
@@ -159,8 +189,9 @@ host-os-policy:
 # Occasionally network packets appear fragmented. 
 # Fragmented packets exist of many parts, the packets have to be reconstructed.
 # This will be done by a component of Suricata; the defragment-engine
+# Memcaps sum below the container memory limit (4g): 128mb + 256mb + 256mb + 1gb.
 defrag:
-  memcap: 1gb
+  memcap: 128mb
   hash-size: 65536
   trackers: 65535
   max-frags: 65535
@@ -168,7 +199,7 @@ defrag:
   timeout: 60
 
 flow:
-  memcap: 2gb
+  memcap: 256mb
   hash-size: 65536
   prealloc: 10000
   emergency-recovery: 30
@@ -213,12 +244,12 @@ flow-timeouts:
     emergency-bypassed: 50
 
 stream:
-  memcap: 2gb # memcap > prealloc-sessions * thread nums(default to core nums) * interface nums * size of TcpSession(800B)
+  memcap: 256mb # memcap > prealloc-sessions * thread nums(default to core nums) * interface nums * size of TcpSession(800B)
   prealloc-sessions: 8192 # per thread
   checksum-validation: yes
   inline: auto
   reassembly:
-    memcap: 6gb
+    memcap: 1gb
     depth: 1mb
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
@@ -252,8 +283,10 @@ spm-algo: auto
 
 af-packet:
   - interface: default
-    threads: auto
-    cluster-type: cluster_flow # Uses all cores
+    # `auto` sizes from the host's online CPUs, not from the container's CPU limit.
+    # 1 per interface = 2 workers for the two capture interfaces under cpus: 2.0.
+    threads: 1
+    cluster-type: cluster_flow
     defrag: yes
     # tpacket-v3 should have better packet capture rate than tpacket-v2,
     # refer to https://www.kernel.org/doc/Documentation/networking/packet_mmap.txt
@@ -346,8 +379,23 @@ app-layer-error-policy: ignore
 plugin:
   - /usr/local/lib/suricata/python/suricata-verify.py
 
+# No Lua: this sensor has no Lua output scripts, and rules using the lua keyword are
+# rejected at load time. Suricata 8 always builds with Lua; this keeps it unused.
+security:
+  lua:
+    allow-rules: false
+    allow-restricted-functions: false
+
+# Detection runs only for the request-body marker ruleset (rules/body.rules, ruleset body-v1);
+# alerts are markers for request-body signals, nothing is blocked.
 detect:
-  enabled: no
+  enabled: yes
+
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - body.rules
+classification-file: /etc/suricata.dist/classification.config
+reference-config-file: /etc/suricata.dist/reference.config
 
 vars:
   address-groups:
