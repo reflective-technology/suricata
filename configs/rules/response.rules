@@ -1,0 +1,18 @@
+# Signs that an attack worked, in HTTP response bodies (decompressed, first 100 KB per
+# response-body-limit). Response bodies never leave the sensor; only the sid does.
+# Ruleset rules-v2, sid 9102001-9102099. Category in sid_map.csv.
+alert http any any -> any any (msg:"RESP /etc/passwd content"; flow:established,to_client; http.response_body; content:"root:x:0:0:"; fast_pattern; pcre:"/root:x:0:0:[^:\n]*:\/[^:\n]*:/"; classtype:successful-recon-limited; sid:9102001; rev:1;)
+alert http any any -> any any (msg:"RESP id command output"; flow:established,to_client; http.response_body; content:"uid="; fast_pattern; pcre:"/uid=\d{1,10}\([a-z_][\w.-]{0,31}\) gid=\d{1,10}\(/"; classtype:successful-admin; sid:9102002; rev:1;)
+alert http any any -> any any (msg:"RESP MySQL syntax error"; flow:established,to_client; http.response_body; content:"error in your SQL syntax"; nocase; classtype:web-application-attack; sid:9102003; rev:1;)
+alert http any any -> any any (msg:"RESP Oracle error"; flow:established,to_client; http.response_body; content:"ORA-"; fast_pattern; pcre:"/ORA-\d{5}: /"; classtype:web-application-attack; sid:9102004; rev:1;)
+alert http any any -> any any (msg:"RESP MSSQL unclosed quotation"; flow:established,to_client; http.response_body; content:"Unclosed quotation mark after the character string"; nocase; classtype:web-application-attack; sid:9102005; rev:1;)
+alert http any any -> any any (msg:"RESP PostgreSQL error"; flow:established,to_client; http.response_body; content:"syntax error at or near"; nocase; classtype:web-application-attack; sid:9102006; rev:1;)
+alert http any any -> any any (msg:"RESP SQLite error"; flow:established,to_client; http.response_body; content:"SQLITE_ERROR"; classtype:web-application-attack; sid:9102007; rev:1;)
+alert http any any -> any any (msg:"RESP Python traceback"; flow:established,to_client; http.response_body; content:"Traceback (most recent call last)"; classtype:web-application-activity; sid:9102008; rev:1;)
+alert http any any -> any any (msg:"RESP Java stack trace"; flow:established,to_client; http.response_body; content:"Exception"; content:"|0a 09|at "; distance:0; pcre:"/\n\tat [a-zA-Z_$][\w$]*(\.[\w$<>]+)+\(/"; classtype:web-application-activity; sid:9102009; rev:1;)
+alert http any any -> any any (msg:"RESP phpinfo page"; flow:established,to_client; http.response_body; content:"phpinfo()"; content:"<title>"; nocase; classtype:successful-recon-limited; sid:9102010; rev:1;)
+alert http any any -> any any (msg:"RESP directory listing"; flow:established,to_client; http.response_body; content:"<title>Index of /"; nocase; classtype:successful-recon-limited; sid:9102011; rev:1;)
+alert http any any -> any any (msg:"RESP AWS access key id"; flow:established,to_client; http.response_body; content:"AKIA"; fast_pattern; pcre:"/(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])/"; classtype:policy-violation; sid:9102012; rev:1;)
+alert http any any -> any any (msg:"RESP private key"; flow:established,to_client; http.response_body; content:"PRIVATE KEY-----"; fast_pattern; pcre:"/-----BEGIN (RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/"; classtype:policy-violation; sid:9102013; rev:1;)
+alert http any any -> any any (msg:"RESP Windows command output"; flow:established,to_client; http.response_body; pcre:"/(Windows IP Configuration|Volume Serial Number is [0-9A-F]{4}-[0-9A-F]{4}|\[boot loader\])/"; classtype:successful-admin; sid:9102014; rev:1;)
+alert http any any -> any any (msg:"RESP webshell page"; flow:established,to_client; http.response_body; pcre:"/<title>[^<]{0,40}(WSO \d|b374k|c99shell|r57shell|p0wny|weevely)/i"; classtype:successful-admin; sid:9102015; rev:1;)

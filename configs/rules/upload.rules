@@ -1,0 +1,9 @@
+# Script / webshell uploads in HTTP request bodies (multipart files).
+# Ruleset rules-v2, sid 9103001-9103099. Category in sid_map.csv.
+alert http any any -> any any (msg:"UPLOAD PHP code"; flow:established,to_server; file.data; content:"<?"; fast_pattern; pcre:"/<\?(php\b|=)/i"; classtype:web-application-attack; sid:9103001; rev:1;)
+alert http any any -> any any (msg:"UPLOAD JSP code"; flow:established,to_server; file.data; content:"<%"; pcre:"/<%[@!=]?\s*(page\s+import|import\s|Runtime\.getRuntime|request\.getParameter|ProcessBuilder)/i"; classtype:web-application-attack; sid:9103002; rev:1;)
+alert http any any -> any any (msg:"UPLOAD ASP.NET code"; flow:established,to_server; file.data; content:"<%@"; content:"Page"; nocase; distance:0; within:20; content:"Language="; nocase; distance:0; within:30; classtype:web-application-attack; sid:9103003; rev:1;)
+alert http any any -> any any (msg:"UPLOAD server-script file name"; flow:established,to_server; file.name; pcre:"/\.(php\d?|phtml|phar|pht|jspx?|aspx?|ashx|asmx|cer|shtml)$/i"; classtype:web-application-attack; sid:9103004; rev:1;)
+alert http any any -> any any (msg:"UPLOAD double extension with server script"; flow:established,to_server; file.name; pcre:"/\.(php\d?|phtml|jspx?|aspx?)\.[a-z0-9]{2,5}$/i"; classtype:web-application-attack; sid:9103005; rev:1;)
+alert http any any -> any any (msg:"UPLOAD image name with script content"; flow:established,to_server; file.name; pcre:"/\.(jpe?g|png|gif|bmp|webp|ico)$/i"; file.data; content:"<?"; pcre:"/<\?(php\b|=)/i"; classtype:web-application-attack; sid:9103006; rev:1;)
+alert http any any -> any any (msg:"UPLOAD image name but not image content"; flow:established,to_server; file.name; pcre:"/\.(jpe?g|png|gif)$/i"; filemagic:!"image"; classtype:web-application-attack; sid:9103007; rev:1;)

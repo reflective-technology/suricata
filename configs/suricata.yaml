@@ -77,8 +77,10 @@ app-layer:
             type: both
             compress-depth: 100kb
             decompress-depth: 100kb
-          double-decode-path: no
-          double-decode-query: no
+          # decode %25xx once more before detection, so double-encoded paths and queries match
+          # the rules; EVE keeps the URL as sent
+          double-decode-path: yes
+          double-decode-query: yes
         server-config:
     http2:
       enabled: yes
@@ -386,14 +388,23 @@ security:
     allow-rules: false
     allow-restricted-functions: false
 
-# Detection runs only for the request-body marker ruleset (rules/body.rules, ruleset body-v1);
-# alerts are markers for request-body signals, nothing is blocked.
+# Detection runs the HTTP marker rulesets (ruleset rules-v2); alerts are signals, nothing is
+# blocked. Families by sid: request body 91000xx, protocol 9101xxx and the bundled
+# http-events / http2-events, response body 9102xxx, uploads 9103xxx, ET Open 2xxxxxx.
+# ET rules are directional: set HOME_NET to the protected servers on each sensor
+# (--set vars.address-groups.HOME_NET=...), otherwise traffic between private addresses never matches.
 detect:
   enabled: yes
 
 default-rule-path: /etc/suricata/rules
 rule-files:
   - body.rules
+  - protocol.rules
+  - response.rules
+  - upload.rules
+  - et-http.rules
+  - /usr/share/suricata/rules/http-events.rules
+  - /usr/share/suricata/rules/http2-events.rules
 classification-file: /etc/suricata.dist/classification.config
 reference-config-file: /etc/suricata.dist/reference.config
 
