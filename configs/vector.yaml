@@ -1,7 +1,8 @@
 # Vector sidecar for the Suricata sensor: ships EVE to Kafka without parsing
 # HTTP events (design (b), reflective-technology/http-collector-poc).
 # Environment: KAFKA_SERVER, SENSOR_ID, SENSOR_IP, PROJECT_ID, RULESET_VERSION
-# (empty RULESET_VERSION = no request-body ruleset on this sensor).
+# (rules-v2 = the image's request-body and response-body rules are loaded; empty = no
+# rules on this sensor, so bodies are reported as not inspected).
 #   http   -> regex mask on the raw line -> syslog-ng-shaped envelope -> Kafka lgshlgs (tag pcap_eve)
 #   alert  -> parsed (alerts are rare) -> Kafka pcap-body-signal-v1
 #   flow   -> HTTP and HTTP/2 connections only, parsed -> Kafka pcap-body-signal-v1 (type "flow";
@@ -58,6 +59,7 @@ transforms:
         "raw_host_name": get_env_var("SENSOR_ID") ?? "suricata",
         "raw_host_ip": get_env_var("SENSOR_IP") ?? "",
         "raw_body_ruleset_version": get_env_var("RULESET_VERSION") ?? "",
+        "raw_resp_body_ruleset_version": get_env_var("RULESET_VERSION") ?? "",
         "raw_sensor_id": get_env_var("SENSOR_ID") ?? "suricata"
       }
 
@@ -79,6 +81,11 @@ transforms:
         "ruleset_version": get_env_var("RULESET_VERSION") ?? "",
         "ts": format_timestamp!(t, "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
       }
+      # rule metadata, each only when EVE has it; classtype is EVE alert.category
+      if is_integer(e.alert.gid) { .gid = e.alert.gid }
+      if is_integer(e.alert.rev) { .rev = e.alert.rev }
+      if is_string(e.alert.category) && e.alert.category != "" { .classtype = e.alert.category }
+      if is_integer(e.alert.severity) { .severity = e.alert.severity }
 
   # One record per connection, written by Suricata when the flow times out (about 60 s after
   # the last packet; ~600 s for an idle keep-alive connection). Same sink and key as the alerts
@@ -212,6 +219,8 @@ tests:
               assert!(contains(m, "{\"name\":\"Server\",\"value\":\"nginx\"}"))
               assert!(is_object(parse_json!(m)))
               assert_eq!(.tags, ["pcap_eve"])
+              # request- and response-body inspection follow the same ruleset version
+              assert_eq!(.raw_resp_body_ruleset_version, .raw_body_ruleset_version)
   - name: alert becomes a body signal
     inputs:
       - insert_at: body_signal
@@ -228,6 +237,27 @@ tests:
               assert_eq!(.sid, 9100001)
               assert_eq!(.h2_stream_id, 0)
               assert_eq!(.ts, "2026-10-17T01:57:40.159657Z")
+              # no rule metadata in this EVE alert, so none is sent
+              assert!(!exists(.gid))
+              assert!(!exists(.classtype))
+  - name: alert carries rule metadata
+    inputs:
+      - insert_at: body_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-19T02:31:07.120004+0000","event_type":"alert","flow_id":7,"tx_id":0,"alert":{"action":"allowed","gid":1,"signature_id":9102007,"rev":1,"signature":"RESP SQLite error","category":"Web Application Attack","severity":1},"http":{"http2":{"stream_id":5}}}'
+    outputs:
+      - extract_from: body_signal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.sid, 9102007)
+              assert_eq!(.gid, 1)
+              assert_eq!(.rev, 1)
+              assert_eq!(.classtype, "Web Application Attack")
+              assert_eq!(.severity, 1)
+              assert_eq!(.h2_stream_id, 5)
+              assert!(!exists(.signature))
   - name: http flow becomes a flow signal
     inputs:
       - insert_at: flow_signal

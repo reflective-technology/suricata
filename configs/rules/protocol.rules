@@ -1,0 +1,8 @@
+# HTTP request smuggling / parser-evasion markers that Suricata's bundled http-events.rules
+# do not cover (ruleset rules-v2, sid 9101001-9101099). Category in sid_map.csv.
+alert http any any -> any any (msg:"PROTO request with both Content-Length and Transfer-Encoding"; flow:established,to_server; http.header_names; content:"|0d 0a|Content-Length|0d 0a|"; nocase; content:"|0d 0a|Transfer-Encoding|0d 0a|"; nocase; classtype:protocol-command-decode; sid:9101001; rev:1;)
+alert http any any -> any any (msg:"PROTO request Transfer-Encoding other than plain chunked"; flow:established,to_server; http.request_header; content:"transfer-encoding|3a|"; nocase; startswith; pcre:"/^transfer-encoding:[ \t]*+(?!chunked[ \t]*$)/i"; classtype:protocol-command-decode; sid:9101002; rev:1;)
+alert http any any -> any any (msg:"PROTO request header folding (obs-fold)"; flow:established,to_server; http.header.raw; pcre:"/\r\n[ \t]+\S/"; classtype:protocol-command-decode; sid:9101003; rev:1;)
+alert http any any -> any any (msg:"PROTO request whitespace between header name and colon"; flow:established,to_server; app-layer-event:http.request_invalid_lws_after_name; classtype:protocol-command-decode; sid:9101004; rev:1;)
+alert http any any -> any any (msg:"PROTO request Content-Length with extra data"; flow:established,to_server; app-layer-event:http.content_length_extra_data_end; classtype:protocol-command-decode; sid:9101005; rev:1;)
+alert http any any -> any any (msg:"PROTO request Content-Length with leading extra data"; flow:established,to_server; app-layer-event:http.content_length_extra_data_start; classtype:protocol-command-decode; sid:9101006; rev:1;)

@@ -17,11 +17,14 @@ for target in target/*/; do
     fi
 done
 
-# the request-body ruleset loads completely
-if /usr/bin/suricata -T -v -c /etc/suricata/suricata.yaml 2>&1 | grep -q " 0 rules failed"; then
-    echo "Test Passed: body.rules loaded"
+# every rule file loads completely: no rule fails, and each enabled rule in the files is loaded
+expected=$(grep -h '^alert' /etc/suricata/rules/*.rules /usr/share/suricata/rules/http-events.rules /usr/share/suricata/rules/http2-events.rules | wc -l)
+load=$(/usr/bin/suricata -T -v -c /etc/suricata/suricata.yaml 2>&1)
+if echo "$load" | grep -q " 0 rules failed" && echo "$load" | grep -qE "\b$expected rules successfully loaded"; then
+    echo "Test Passed: $expected rules loaded"
 else
-    echo "Test Failed: body.rules did not load cleanly" >&2
+    echo "Test Failed: rules did not load cleanly (expected $expected)" >&2
+    echo "$load" | grep -iE "rules (successfully loaded|failed)|error" | head -20 >&2
     exit 1
 fi
 
