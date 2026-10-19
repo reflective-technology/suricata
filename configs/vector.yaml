@@ -4,9 +4,11 @@
 # (empty RULESET_VERSION = no request-body ruleset on this sensor).
 #   http   -> regex mask on the raw line -> syslog-ng-shaped envelope -> Kafka lgshlgs (tag pcap_eve)
 #   alert  -> parsed (alerts are rare) -> Kafka pcap-body-signal-v1
+#   flow   -> HTTP and HTTP/2 connections only, parsed -> Kafka pcap-body-signal-v1 (type "flow";
+#             connection-level signals, joined downstream on flow_id)
 #   frontier: per 5 s window, the maximum EVE timestamp over every event that passed
-#             (http, alert and Suricata stats, so idle sensors still advance); emitted
-#             when the window closes, after that window's alerts entered the same sink
+#             (http, alert, flow and Suricata stats, so idle sensors still advance); emitted
+#             when the window closes, after that window's alerts and flows entered the same sink
 data_dir: /var/lib/vector
 acknowledgements:
   enabled: true
@@ -34,6 +36,7 @@ transforms:
       http: 'contains(string!(.message), "\"event_type\":\"http\"")'
       alert: 'contains(string!(.message), "\"event_type\":\"alert\"")'
       stats: 'contains(string!(.message), "\"event_type\":\"stats\"")'
+      flow: 'contains(string!(.message), "\"event_type\":\"flow\"")'
 
   http_envelope:
     type: remap
@@ -77,9 +80,53 @@ transforms:
         "ts": format_timestamp!(t, "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
       }
 
+  # One record per connection, written by Suricata when the flow times out (about 60 s after
+  # the last packet; ~600 s for an idle keep-alive connection). Same sink and key as the alerts
+  # and the frontier, so a frontier past T means every flow logged up to T was delivered first.
+  # reason "timeout" / "tcp_reuse" = connection ended; "shutdown" / "forced" = cut short, so the
+  # byte and time totals are partial.
+  flow_signal:
+    type: remap
+    inputs: [route.flow]
+    # a record without its required fields is dropped (counted as discarded), never sent half-filled
+    drop_on_error: true
+    source: |
+      e = parse_json!(string!(.message))
+      ap = string(e.app_proto) ?? ""
+      if ap != "http" && ap != "http2" { abort }
+      f = object!(e.flow)
+      fmt = "%Y-%m-%dT%H:%M:%S%.6f%z"
+      out = "%Y-%m-%dT%H:%M:%S%.6fZ"
+      . = {
+        "type": "flow",
+        "project_id": get_env_var("PROJECT_ID") ?? "",
+        "sensor_id": get_env_var("SENSOR_ID") ?? "suricata",
+        "flow_id": to_int!(e.flow_id),
+        "app_proto": ap,
+        "start": format_timestamp!(parse_timestamp!(string!(f.start), fmt), out, timezone: "UTC"),
+        "end": format_timestamp!(parse_timestamp!(string!(f.end), fmt), out, timezone: "UTC"),
+        "age": to_int(f.age) ?? 0,
+        "pkts_toserver": to_int(f.pkts_toserver) ?? 0,
+        "pkts_toclient": to_int(f.pkts_toclient) ?? 0,
+        "bytes_toserver": to_int(f.bytes_toserver) ?? 0,
+        "bytes_toclient": to_int(f.bytes_toclient) ?? 0,
+        "state": string(f.state) ?? "",
+        "reason": string(f.reason) ?? "",
+        "tx_cnt": to_int(f.tx_cnt) ?? 0,
+        "alerted": f.alerted == true,
+        "src_ip": e.src_ip,
+        "src_port": e.src_port,
+        "dest_ip": e.dest_ip,
+        "dest_port": e.dest_port,
+        "ts": format_timestamp!(parse_timestamp!(string!(e.timestamp), fmt), out, timezone: "UTC")
+      }
+      # TCP only: Suricata sets tcp.rst when it saw a reset; absent tcp object = no field
+      if is_object(e.tcp) { .tcp_rst = e.tcp.rst == true }
+      . = compact(., null: true, string: false, object: false, array: false, nullish: false)
+
   frontier_ts:
     type: remap
-    inputs: [route.http, route.alert, route.stats]
+    inputs: [route.http, route.alert, route.flow, route.stats]
     # an event without a parseable timestamp must not move the frontier: drop it
     drop_on_error: true
     source: |
@@ -122,7 +169,7 @@ sinks:
 
   kafka_body_signal:
     type: kafka
-    inputs: [body_signal, frontier]
+    inputs: [body_signal, flow_signal, frontier]
     bootstrap_servers: "${KAFKA_SERVER}"
     topic: pcap-body-signal-v1
     key_field: sensor_id
@@ -181,6 +228,57 @@ tests:
               assert_eq!(.sid, 9100001)
               assert_eq!(.h2_stream_id, 0)
               assert_eq!(.ts, "2026-10-17T01:57:40.159657Z")
+  - name: http flow becomes a flow signal
+    inputs:
+      - insert_at: flow_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-19T00:01:05.364296+0000","flow_id":779302414004608,"event_type":"flow","src_ip":"10.0.0.1","src_port":51682,"dest_ip":"10.0.0.2","dest_port":3000,"proto":"TCP","app_proto":"http","flow":{"pkts_toserver":7,"pkts_toclient":5,"bytes_toserver":698,"bytes_toclient":10198,"start":"2026-10-19T00:00:02.246981+0000","end":"2026-10-19T00:00:02.257031+0000","age":0,"state":"closed","reason":"timeout","alerted":false,"tx_cnt":1},"tcp":{"tcp_flags":"1b","syn":true,"fin":true,"state":"closed"}}'
+    outputs:
+      - extract_from: flow_signal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.type, "flow")
+              assert_eq!(.flow_id, 779302414004608)
+              assert!(is_integer(.flow_id))
+              assert_eq!(.start, "2026-10-19T00:00:02.246981Z")
+              assert_eq!(.end, "2026-10-19T00:00:02.257031Z")
+              assert_eq!(.ts, "2026-10-19T00:01:05.364296Z")
+              assert_eq!(.bytes_toclient, 10198)
+              assert_eq!(.pkts_toserver, 7)
+              assert_eq!(.tx_cnt, 1)
+              assert_eq!(.reason, "timeout")
+              assert_eq!(.alerted, false)
+              assert_eq!(.tcp_rst, false)
+              assert_eq!(.dest_port, 3000)
+  - name: http2 flow cut short by shutdown keeps reason and reset
+    inputs:
+      - insert_at: flow_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-19T00:05:00.000001+0000","flow_id":7,"event_type":"flow","src_ip":"10.0.0.1","src_port":1,"dest_ip":"10.0.0.2","dest_port":80,"app_proto":"http2","flow":{"pkts_toserver":1,"pkts_toclient":1,"bytes_toserver":1,"bytes_toclient":1,"start":"2026-10-19T00:00:00.000000+0000","end":"2026-10-19T00:04:59.000000+0000","age":299,"state":"established","reason":"shutdown","alerted":true,"tx_cnt":4},"tcp":{"rst":true}}'
+    outputs:
+      - extract_from: flow_signal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.app_proto, "http2")
+              assert_eq!(.reason, "shutdown")
+              assert_eq!(.age, 299)
+              assert_eq!(.alerted, true)
+              assert_eq!(.tcp_rst, true)
+  - name: non-http flows and flows without start are not sent
+    no_outputs_from: [flow_signal]
+    inputs:
+      - insert_at: flow_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-19T00:01:05.364296+0000","flow_id":1,"event_type":"flow","proto":"UDP","app_proto":"failed","flow":{"start":"2026-10-19T00:00:02.246981+0000","end":"2026-10-19T00:00:02.257031+0000"}}'
+      - insert_at: flow_signal
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-19T00:01:05.364296+0000","flow_id":2,"event_type":"flow","app_proto":"http","flow":{"end":"2026-10-19T00:00:02.257031+0000"}}'
   - name: frontier timestamp in microseconds
     inputs:
       - insert_at: frontier_ts
