@@ -9,7 +9,9 @@
 #             connection-level signals, joined downstream on flow_id)
 #   frontier: per 5 s window, the maximum EVE timestamp over every event that passed
 #             (http, alert, flow and Suricata stats, so idle sensors still advance); emitted
-#             when the window closes, after that window's alerts and flows entered the same sink
+#             when the window closes, after that window's alerts and flows entered the same sink.
+#             A window that held a stats record also carries the sensor's capture-loss counter
+#             (capture_loss, sensor_uptime_s, capture_as_of; all three or none)
 data_dir: /var/lib/vector
 acknowledgements:
   enabled: true
@@ -135,7 +137,7 @@ transforms:
 
   frontier_ts:
     type: remap
-    inputs: [route.http, route.alert, route.flow, route.stats]
+    inputs: [route.http, route.alert, route.flow]
     # an event without a parseable timestamp must not move the frontier: drop it
     drop_on_error: true
     source: |
@@ -143,22 +145,63 @@ transforms:
       t = parse_timestamp!(m.ts, "%Y-%m-%dT%H:%M:%S%.6f%z")
       . = {"k": "frontier", "ts_us": to_unix_timestamp(t, unit: "microseconds")}
 
+  # Suricata stats (every 10 s) move the frontier too, and carry the capture-loss counter: the
+  # sum of the counters that rise when the sensor missed bytes a client received. Downstream
+  # treats a body without its own length check (chunked, close-delimited) as fully inspected only
+  # when this sum did not change around it. Measured on replays:
+  #   tcp.ack_unseen_data      data acked by the peer that the sensor never saw (also a lost
+  #                            last segment before FIN, which sets no flow tc_gap)
+  #   tcp.reassembly_gap       a hole inside a stream
+  #   tcp.stream_depth_reached a stream hit stream.reassembly.depth: later bytes of a keep-alive
+  #                            connection are cut without any per-transaction sign
+  #   tcp.segment_memcap_drop, capture.kernel_drops: segments or packets dropped by the sensor
+  # Any counter missing (e.g. no capture section when reading a pcap file): no capture fields,
+  # which downstream reads as "not clean"
+  capture_ts:
+    type: remap
+    inputs: [route.stats]
+    drop_on_error: true
+    source: |
+      e = parse_json!(string!(.message))
+      t = parse_timestamp!(string!(e.timestamp), "%Y-%m-%dT%H:%M:%S%.6f%z")
+      us = to_unix_timestamp(t, unit: "microseconds")
+      s = object(e.stats) ?? {}
+      c = [s.tcp.ack_unseen_data, s.tcp.reassembly_gap, s.tcp.stream_depth_reached,
+           s.tcp.segment_memcap_drop, s.capture.kernel_drops]
+      . = {"k": "frontier", "ts_us": us}
+      if is_integer(c[0]) && is_integer(c[1]) && is_integer(c[2]) && is_integer(c[3]) && is_integer(c[4]) && is_integer(s.uptime) {
+        .capture_loss = int!(c[0]) + int!(c[1]) + int!(c[2]) + int!(c[3]) + int!(c[4])
+        .sensor_uptime_s = s.uptime
+        .capture_as_of_us = us
+      }
+
   frontier_window:
     type: reduce
-    inputs: [frontier_ts]
+    inputs: [frontier_ts, capture_ts]
     group_by: [k]
     expire_after_ms: 5000
     end_every_period_ms: 5000
     merge_strategies:
       ts_us: max
+      # the last stats record of the window, kept together (integers would otherwise be summed)
+      capture_loss: retain
+      sensor_uptime_s: retain
+      capture_as_of_us: retain
 
   frontier:
     type: remap
     inputs: [frontier_window]
     source: |
+      w = .
       t = from_unix_timestamp!(to_int!(.ts_us), unit: "microseconds")
       . = {"type": "frontier", "project_id": get_env_var("PROJECT_ID") ?? "", "sensor_id": get_env_var("SENSOR_ID") ?? "suricata",
            "eve_ts_max": format_timestamp!(t, "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")}
+      if is_integer(w.capture_loss) && is_integer(w.sensor_uptime_s) && is_integer(w.capture_as_of_us) {
+        .capture_loss = w.capture_loss
+        .sensor_uptime_s = w.sensor_uptime_s
+        .capture_as_of = format_timestamp!(from_unix_timestamp!(int!(w.capture_as_of_us), unit: "microseconds"),
+                                           "%Y-%m-%dT%H:%M:%S%.6fZ", timezone: "UTC")
+      }
 
 sinks:
   kafka_lgshlgs:
@@ -320,7 +363,7 @@ tests:
       - insert_at: frontier_ts
         type: log
         log_fields:
-          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"stats"}'
+          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"http"}'
     outputs:
       - extract_from: frontier_ts
         conditions:
@@ -328,3 +371,70 @@ tests:
             source: |
               assert_eq!(.ts_us, 1792202260159657)
               assert_eq!(.k, "frontier")
+
+  - name: stats move the frontier and carry the capture-loss sum
+    inputs:
+      - insert_at: capture_ts
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"stats","stats":{"uptime":600,"capture":{"kernel_packets":9,"kernel_drops":1},"tcp":{"sessions":5,"ack_unseen_data":2,"reassembly_gap":3,"stream_depth_reached":4,"segment_memcap_drop":5}}}'
+    outputs:
+      - extract_from: capture_ts
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.ts_us, 1792202260159657)
+              assert_eq!(.capture_loss, 15)
+              assert_eq!(.sensor_uptime_s, 600)
+              assert_eq!(.capture_as_of_us, 1792202260159657)
+
+  - name: stats without a capture section carry no capture fields
+    inputs:
+      - insert_at: capture_ts
+        type: log
+        log_fields:
+          message: '{"timestamp":"2026-10-17T01:57:40.159657+0000","event_type":"stats","stats":{"uptime":600,"tcp":{"ack_unseen_data":0,"reassembly_gap":0,"stream_depth_reached":0,"segment_memcap_drop":0}}}'
+    outputs:
+      - extract_from: capture_ts
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.ts_us, 1792202260159657)
+              assert!(!exists(.capture_loss))
+              assert!(!exists(.sensor_uptime_s))
+
+  - name: frontier record carries the capture fields only when the window had them
+    inputs:
+      - insert_at: frontier
+        type: log
+        log_fields:
+          k: frontier
+          ts_us: 1792202265000001
+          capture_loss: 0
+          sensor_uptime_s: 600
+          capture_as_of_us: 1792202260159657
+    outputs:
+      - extract_from: frontier
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.type, "frontier")
+              assert_eq!(.eve_ts_max, "2026-10-17T01:57:45.000001Z")
+              assert_eq!(.capture_loss, 0)
+              assert_eq!(.sensor_uptime_s, 600)
+              assert_eq!(.capture_as_of, "2026-10-17T01:57:40.159657Z")
+              assert_eq!(keys(.), ["capture_as_of", "capture_loss", "eve_ts_max", "project_id", "sensor_id", "sensor_uptime_s", "type"])
+
+  - name: frontier record without stats has no capture fields
+    inputs:
+      - insert_at: frontier
+        type: log
+        log_fields:
+          k: frontier
+          ts_us: 1792202265000001
+    outputs:
+      - extract_from: frontier
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(keys(.), ["eve_ts_max", "project_id", "sensor_id", "type"])
