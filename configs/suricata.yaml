@@ -252,7 +252,11 @@ stream:
   inline: auto
   reassembly:
     memcap: 1gb
-    depth: 1mb
+    # 0 = no depth limit. With a limit, everything past it on a connection is not reassembled:
+    # on a keep-alive connection a later response is cut without any per-transaction sign, or
+    # not parsed at all (no status). The per-protocol http stream-depth does not change this.
+    # Memory stays bounded by the memcaps above (drops show in tcp.segment_memcap_drop)
+    depth: 0
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
     randomize-chunk-size: yes
