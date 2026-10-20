@@ -6,7 +6,7 @@ A containerized [Suricata 8.0](https://suricata.io/) sensor that logs HTTP / HTT
 
 - Captures traffic directly on the host network interface using `network_mode: host`
 - Native EVE output for HTTP, HTTP2, flow and engine stats; files rotate hourly and are removed by the sidecar after they are shipped
-- Vector sidecar (`configs/vector.yaml`): masks secrets on the sensor, ships HTTP events to Kafka topic `lgshlgs` (tag `pcap_eve`) with acknowledgements and disk buffers, so a Kafka or downstream outage does not lose events
+- Vector sidecar (`configs/vector.yaml`): masks secrets on the sensor, ships HTTP events to Kafka topic `lgshlgs` (tag `pcap_eve`) with end-to-end acknowledgements: the EVE file position is saved only after Kafka acked the events, so a Kafka outage or a Vector crash does not lose events (after a crash the unacked tail is sent again, so consumers may see a few duplicates)
 - HTTP detection signals (ruleset `rules-v2`, see [Rules](#rules)): request-body injection markers, protocol anomalies and request smuggling, signs of a successful attack in response bodies, script uploads, and selected ET Open rules. Alerts go to Kafka topic `pcap-body-signal-v1` with the rule's gid, rev, classtype and severity. No request or response body text leaves the sensor
 - Connection records: `flow` events of HTTP and HTTP/2 connections (start, end, bytes and packets per direction, requests per connection, end reason, reset seen) go to the same topic as `type: "flow"`, keyed by sensor, ahead of the frontier that covers them
 - Only HTTP / HTTP2 / TLS application-layer parsing is enabled; memcaps are bounded below the container memory limit
