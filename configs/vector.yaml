@@ -18,8 +18,10 @@ sources:
   eve_files:
     type: file
     include: ["/var/log/suricata/eve-*.json", "/var/log/suricata/stats-*.json"]
-    # Suricata rotates hourly; delete a file one hour after it was read to the end
-    # (events already read sit in the disk buffers below)
+    # Suricata rotates hourly; delete a file one hour after it was read to the end.
+    # With acknowledgements on, the read position is checkpointed only after Kafka acked the
+    # events, so after a crash Vector re-reads the unacked tail from the EVE file (the EVE files
+    # are the durable buffer; the sink buffers below are memory only)
     remove_after_secs: 3600
     read_from: beginning
     fingerprint:
@@ -167,9 +169,13 @@ sinks:
     encoding:
       codec: json
     message_timeout_ms: 300000
+    # Memory, not disk: Vector's disk buffer can hold the last event until the next write
+    # arrives (vectordotdev/vector#23605), so on a quiet sensor an http event lagged the
+    # frontier by minutes. Bounded by bytes (bodies make events up to a few hundred kB);
+    # when full, reading stops and Suricata's EVE files absorb the backlog
     buffer:
-      type: disk
-      max_size: 2147483648
+      type: memory
+      max_size: 104857600
       when_full: block
     acknowledgements:
       enabled: true
@@ -184,8 +190,8 @@ sinks:
       codec: json
     message_timeout_ms: 300000
     buffer:
-      type: disk
-      max_size: 536870912
+      type: memory
+      max_size: 16777216
       when_full: block
     acknowledgements:
       enabled: true
