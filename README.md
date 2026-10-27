@@ -49,6 +49,15 @@ A containerized [Suricata 8.0](https://suricata.io/) sensor that logs HTTP / HTT
 
 ### Migrating from the 7.x Lua image
 
+`scripts/upgrade-to-8.0.7.sh` switches a running 7.x sensor (container `suricata`) to this stack. Copy it to the sensor together with `configs/vector.yaml` (same directory), then:
+
+```bash
+sudo ./upgrade-to-8.0.7.sh --kafka-server k1:9092 --sensor-id s-01 --project-id p-01 --home-net "[10.1.2.0/24]" --dry-run
+sudo ./upgrade-to-8.0.7.sh --kafka-server k1:9092 --sensor-id s-01 --project-id p-01 --home-net "[10.1.2.0/24]"
+```
+
+It checks the interfaces, Kafka reachability, `suricata -T` (no failed rules) and `vector validate` before touching anything, keeps the 7.x container stopped as `suricata-v7-backup`, starts the 8.0 stack as compose project `suricata-v8` in `/opt/suricata-v8`, and rolls back on its own if Suricata does not start. `--rollback` restores the 7.x container; `--finalize` removes it once the upgrade is accepted. `--image-archive` loads images from a `docker save` file on hosts without registry access. `--help` lists all options.
+
 - The Lua syslog output (`http_custom.lua`) and its environment variables (`SYSLOG_HOST`, `SYSLOG_PORT`, `HTTP_BODY_MAX_SIZE`, `TCP_*`, `REDACT_SENSITIVE_HEADERS`, `ENABLE_RAW_CAPTURE`) are gone. Events go through the Vector sidecar to Kafka instead of TCP syslog.
 - Field semantics: `body_bytes_out` is the on-wire response body (dechunked, not decompressed); header-inclusive `bytes_in` / `bytes_out` and `duration` are not produced.
 - `/etc/suricata` is a volume in the base image: recreate the container with renewed anonymous volumes (`docker compose up -d --force-recreate -V`), otherwise an existing container keeps its old configuration.
