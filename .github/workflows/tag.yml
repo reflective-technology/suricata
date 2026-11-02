@@ -52,7 +52,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - name: Push tag
         id: tag_version
-        uses: reflective-technology/github-tag-action@d86631af8dd0eea19a0c631fb26129f831addfa1
+        uses: reflective-technology/github-tag-action@85675313df09822536e1584a675156d2b96779fa
         with:
           github_token: ${{ steps.generate-token.outputs.token }}
           tag_prefix: "v"
