@@ -198,6 +198,11 @@ function extract_http_variables()
     if redact_sensitive_headers and cookie ~= "" then cookie = "[REDACTED]" end
     local x_forwarded_host = HttpGetRequestHeader("X-Forwarded-Host") or ""
     local x_powered_by = HttpGetResponseHeader("X-Powered-By") or ""
+    -- Client-IP headers some WAFs/load balancers set instead of (or next to)
+    -- X-Forwarded-For. Shipped verbatim; Logstash decides whether to trust them
+    -- (util/trusted-cidrs.txt + util/trusted-ip-headers.txt).
+    local x_client_ip = HttpGetRequestHeader("X-Client-IP") or ""
+    local x_real_ip = HttpGetRequestHeader("X-Real-IP") or ""
 
     -- Extract HTTP version from response line
     local version = "HTTP/1.1"
@@ -240,6 +245,8 @@ function extract_http_variables()
         cookie = cookie,
         x_forwarded_host = x_forwarded_host,
         x_powered_by = x_powered_by,
+        x_client_ip = x_client_ip,
+        x_real_ip = x_real_ip,
     }
 end
 
@@ -276,7 +283,12 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         'http_accept_language="%s" location="%s" set_cookie="%s" cookie="%s" ' ..
         'x_forwarded_host="%s" x_powered_by="%s" ' ..
         'bytes_out="%s" duration=%d ' ..
-        'body_bytes_out="%s" body_bytes_in="%s"',
+        'body_bytes_out="%s" body_bytes_in="%s" ' ..
+        -- Appended so existing fields keep their order. Values are not
+        -- quote-escaped: a copy smuggled into another header's value (e.g.
+        -- User-Agent: `" x_client_ip="...`) makes Logstash's kv see the key
+        -- twice; extract_real_ip.rb then trusts neither copy.
+        'x_client_ip="%s" x_real_ip="%s"',
         vars.timestamp, vars.src_ip, vars.dest_ip, vars.src_port, vars.dest_port,
         vars.method, vars.version, vars.uri_path,
         vars.uri_query, vars.file_extension, vars.hostname,
@@ -288,7 +300,8 @@ function format_message(vars, request_body_len, response_body_len, req_header_le
         vars.http_accept_language, vars.location, vars.set_cookie, vars.cookie,
         vars.x_forwarded_host, vars.x_powered_by,
         count_http_bytes_in_and_bytes_out(res_header_length, response_body_len), duration,
-        response_body_len, request_body_len
+        response_body_len, request_body_len,
+        vars.x_client_ip, vars.x_real_ip
     )
 end
 
