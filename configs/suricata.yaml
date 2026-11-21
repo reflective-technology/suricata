@@ -6,7 +6,7 @@ default-log-dir: /var/log/suricata/
 # Engine statistics such as packet counters, memory use counters and others can be logged in several ways. 
 stats:
   enabled: yes
-  interval: 8
+  interval: 60
   totals: yes # stats for all threads merged together
 
 outputs:
@@ -15,6 +15,16 @@ outputs:
       scripts-dir: /etc/suricata
       scripts:
         - http_custom.lua
+  # Engine counters (capture drops, memcap drops, reassembly gaps). Without a
+  # stats output these are not observable. ~9 MB/day at a 60 s interval.
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve-stats.json
+      types:
+        - stats:
+            totals: yes
+            threads: no
 
 logging:
   default-log-level: notice
@@ -159,8 +169,11 @@ host-os-policy:
 # Occasionally network packets appear fragmented. 
 # Fragmented packets exist of many parts, the packets have to be reconstructed.
 # This will be done by a component of Suricata; the defragment-engine
+# Memcaps must sum below the container memory limit (4g): otherwise the cgroup
+# OOM killer fires before any memcap, turning countable drops into a restart.
+# 128mb + 256mb + 256mb + 1gb = 1.6 GiB.
 defrag:
-  memcap: 1gb
+  memcap: 128mb
   hash-size: 65536
   trackers: 65535
   max-frags: 65535
@@ -168,7 +181,7 @@ defrag:
   timeout: 60
 
 flow:
-  memcap: 2gb
+  memcap: 256mb
   hash-size: 65536
   prealloc: 10000
   emergency-recovery: 30
@@ -213,12 +226,12 @@ flow-timeouts:
     emergency-bypassed: 50
 
 stream:
-  memcap: 2gb # memcap > prealloc-sessions * thread nums(default to core nums) * interface nums * size of TcpSession(800B)
+  memcap: 256mb # memcap > prealloc-sessions * thread nums(default to core nums) * interface nums * size of TcpSession(800B)
   prealloc-sessions: 8192 # per thread
   checksum-validation: yes
   inline: auto
   reassembly:
-    memcap: 6gb
+    memcap: 1gb
     depth: 1mb
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
@@ -252,8 +265,11 @@ spm-algo: auto
 
 af-packet:
   - interface: default
-    threads: auto
-    cluster-type: cluster_flow # Uses all cores
+    # `auto` sizes from the host's online CPUs (16), not from the container's CPU
+    # limit, giving 16 workers per interface. 1 per interface = 2 workers for
+    # the two capture interfaces under cpus: 2.0.
+    threads: 1
+    cluster-type: cluster_flow
     defrag: yes
     # tpacket-v3 should have better packet capture rate than tpacket-v2,
     # refer to https://www.kernel.org/doc/Documentation/networking/packet_mmap.txt
