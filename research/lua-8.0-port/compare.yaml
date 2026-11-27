@@ -1,0 +1,26 @@
+%YAML 1.1
+---
+default-log-dir: /var/log/suricata
+outputs:
+  - lua:
+      enabled: yes
+      scripts-dir: /s
+      scripts:
+        - http_custom.lua
+app-layer:
+  protocols:
+    http:
+      enabled: yes
+      libhtp:
+        default-config:
+          personality: IDS
+          request-body-limit: 100kb
+          response-body-limit: 100kb
+stream:
+  reassembly:
+    depth: 0
+logging:
+  default-log-level: info
+  outputs:
+    - console:
+        enabled: yes
